@@ -62,6 +62,37 @@ function inferCompany(row: SheetRow) {
   return compact(row["Owner / Applicant"]);
 }
 
+const verifiedWebsiteDomains = new Set([
+  "actonarchitects.com",
+  "arcadis.com",
+  "bararch.com",
+  "ci.ceres.ca.us",
+  "coarchitects.com",
+  "dlrgroup.com",
+  "flad.com",
+  "gensler.com",
+  "hksinc.com",
+  "josephandjoseph.net",
+  "kevin-tsai.com",
+  "kfcyumcenter.com",
+  "perkinswill.com",
+  "som.com",
+  "stantec.com",
+]);
+
+const verifiedWebsiteOverrides: Record<string, string> = {
+  "First 5 Humboldt": "https://www.first5humboldt.org/",
+  "10 Design": "https://10design.co/",
+};
+
+function inferCompanyWebsite(row: SheetRow, company: string, email: string) {
+  const websiteCell = compact(row["Company Website"]);
+  if (isUrl(websiteCell)) return websiteCell;
+  if (verifiedWebsiteOverrides[company]) return verifiedWebsiteOverrides[company];
+  const domain = email.split("@")[1]?.toLowerCase();
+  return domain && verifiedWebsiteDomains.has(domain) ? `https://${domain}` : "";
+}
+
 function inferActivityType(note: string): Activity["type"] {
   const normalized = note.toLowerCase();
   if (normalized.includes("sample")) return "sample";
@@ -200,14 +231,13 @@ export async function getCrmData(): Promise<CrmData> {
 
     const existing = contactMap.get(contactId);
     if (!existing) {
-      const websiteCell = compact(row["Company Website"]);
       contactMap.set(contactId, {
         id: contactId,
         initials: initials(name),
         name,
         title: compact(row.Role),
         company,
-        companyWebsite: isUrl(websiteCell) ? websiteCell : "",
+        companyWebsite: inferCompanyWebsite(row, company, email),
         companyLinkedIn: compact(row["Company LinkedIn"]) === "-" ? "" : compact(row["Company LinkedIn"]),
         personalLinkedIn: compact(row["Personal LinkedIn"]) === "-" ? "" : compact(row["Personal LinkedIn"]),
         email: email === "-" ? "" : email,
