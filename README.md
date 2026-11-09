@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HempWood Outbound CRM
 
-## Getting Started
+Vercel-ready Next.js application for project-informed, person-level outbound campaigns.
 
-First, run the development server:
+## Included in this release
+
+- Contact-level project bundling
+- Qualified-project weekly target: 83 projects
+- Seven-step, 20-day campaign workflow
+- Tasks, reminders, and activity history
+- Person research summaries and project associations
+- Lifecycle changes that stop outreach at MQL
+- MQL sales handover records
+- Browser persistence for the first manual workflow release
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Validate
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run build
+```
 
-## Learn More
+## Deploy to Vercel
 
-To learn more about Next.js, take a look at the following resources:
+1. Import this GitHub repository into Vercel.
+2. Keep the detected framework as **Next.js**.
+3. Use `main` as the production branch.
+4. Deploy without environment variables for this first manual release.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The current application stores changes in the browser. The next production milestone will replace browser persistence with Postgres, add team authentication, and connect read-only Google Sheets imports.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Planned environment variables
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `.env.example`. Never commit real credentials.
