@@ -4,6 +4,7 @@ import { fetch as undiciFetch, ProxyAgent } from "undici";
 import {
   campaignSteps,
   defaultAssignee,
+  lifecycleStages,
   sourceSheetUrl,
   type Activity,
   type Contact,
@@ -46,10 +47,14 @@ function initials(name: string) {
 }
 
 function normalizeLifecycle(value: string): Lifecycle {
-  const match = ["Lead", "MQL", "Nurture", "Disqualified"].find(
+  const normalized = value.trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized) return "Prospect";
+  if (normalized.includes("specified")) return "Specified";
+  if (["customer", "order", "customer/order"].includes(normalized)) return "Customer/Order";
+  const match = lifecycleStages.find(
     (stage) => stage.toLowerCase() === value.trim().toLowerCase(),
   );
-  return (match ?? "") as Lifecycle;
+  return match ?? "Prospect";
 }
 
 function inferCompany(row: SheetRow) {
@@ -144,7 +149,7 @@ function deriveStep(row: SheetRow) {
 }
 
 function deriveDueDate(step: number, latest: Date | null, lifecycle: Lifecycle, now: Date) {
-  if (["MQL", "Nurture", "Disqualified"].includes(lifecycle)) return "";
+  if (["MQL", "SQL", "Customer/Order", "Specified", "Nurture"].includes(lifecycle)) return "";
   if (!latest || step === 0) return now.toISOString().slice(0, 10);
   const previousDay = campaignSteps[Math.max(0, step - 1)].day;
   const gap = campaignSteps[Math.min(step, campaignSteps.length - 1)].day - previousDay;
@@ -155,8 +160,10 @@ function deriveDueDate(step: number, latest: Date | null, lifecycle: Lifecycle, 
 
 function campaignStatus(lifecycle: Lifecycle, hasActivity: boolean) {
   if (lifecycle === "MQL") return "Stopped – MQL";
+  if (lifecycle === "SQL") return "Sales follow-up";
+  if (lifecycle === "Customer/Order") return "Closed – Customer";
+  if (lifecycle === "Specified") return "Closed – Specified";
   if (lifecycle === "Nurture") return "Paused – Nurture";
-  if (lifecycle === "Disqualified") return "Closed";
   return hasActivity ? "Active" : "Not started";
 }
 

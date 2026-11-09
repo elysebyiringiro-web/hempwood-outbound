@@ -333,7 +333,7 @@ a { text-decoration: none; }
   border-collapse: collapse;
 }
 
-.table-card table.contacts-table { min-width: 1420px; }
+.table-card table.contacts-table { min-width: 980px; }
 
 .table-card th {
   padding: 12px 14px;
@@ -361,7 +361,6 @@ a { text-decoration: none; }
 .table-card tbody tr:hover { background: var(--green-soft); }
 .contacts-table tbody tr { cursor: pointer; }
 .align-center { text-align: center !important; }
-.link-cell { white-space: nowrap; }
 .table-card td > small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
 
 .contact-cell { display: flex; align-items: center; gap: 10px; }
@@ -397,10 +396,13 @@ a { text-decoration: none; }
   font-weight: 600;
 }
 
+.pill.prospect { background: #f1f1f1; color: #525252; }
 .pill.lead { background: var(--green-soft); color: var(--green-dark); }
 .pill.mql { background: var(--purple-soft); color: var(--purple); }
+.pill.sql { background: #e8f1ff; color: #315f9b; }
+.pill.customer-order,
+.pill.specified { background: var(--green-soft); color: var(--green-dark); }
 .pill.nurture { background: var(--orange-soft); color: var(--orange); }
-.pill.disqualified { background: var(--red-soft); color: var(--red); }
 
 .target-card,
 .sequence-card,
@@ -454,6 +456,16 @@ a { text-decoration: none; }
 .handover-meta small,
 .handover-meta b { display: block; font-size: 12px; }
 .handover-meta small { color: var(--muted); }
+.handover-note,
+.handover-next { margin: 10px 0; padding: 12px; border-radius: 7px; background: var(--canvas); }
+.handover-next { border-left: 3px solid var(--green); background: var(--green-soft); }
+.handover-note small,
+.handover-next small,
+.handover-guidance small { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .2px; text-transform: uppercase; }
+.handover-note p,
+.handover-next p { margin: 5px 0 0; color: var(--ink); line-height: 1.5; }
+.handover-guidance { border-left: 3px solid var(--green); }
+.handover-guidance p { margin: 5px 0 14px; }
 
 .record > header {
   display: flex;

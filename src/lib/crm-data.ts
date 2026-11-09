@@ -1,4 +1,14 @@
-export type Lifecycle = "" | "Lead" | "MQL" | "Nurture" | "Disqualified";
+export const lifecycleStages = [
+  "Prospect",
+  "Lead",
+  "MQL",
+  "SQL",
+  "Customer/Order",
+  "Specified",
+  "Nurture",
+] as const;
+
+export type Lifecycle = (typeof lifecycleStages)[number];
 
 export type Project = {
   id: string;

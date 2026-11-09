@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   campaignSteps,
   defaultSequenceContent,
+  lifecycleStages,
   sourceSheetUrl,
   type Contact,
   type CrmData,
@@ -28,6 +29,12 @@ const projectOwnerKey = "hempwood-project-owners-v2";
 const sequenceContentKey = "hempwood-sequence-content-v2";
 const workflowStateKey = "hempwood-workflow-state-v2";
 const outreachTypes = new Set(["email", "call", "linkedin"]);
+
+function isOutreachActivity(activity: Contact["activities"][number]) {
+  if (outreachTypes.has(activity.type)) return true;
+  if (activity.note === "Logged in the campaign workspace.") return false;
+  return /\b(email|call|voicemail|vm|linkedin|li invite|spoke)\b/i.test(activity.note);
+}
 
 type WorkflowState = Record<
   string,
@@ -82,7 +89,7 @@ function projectsReachedThisWeek(contacts: Contact[], nowValue: string) {
   contacts.forEach((contact) => {
     contact.activities.forEach((activity) => {
       const timestamp = activity.dateValue ? new Date(activity.dateValue).valueOf() : Number.NaN;
-      if (!outreachTypes.has(activity.type) || timestamp < start || timestamp >= end) return;
+      if (!isOutreachActivity(activity) || timestamp < start || timestamp >= end) return;
       if (activity.note === "Logged in the campaign workspace.") {
         contact.projects.forEach((project) => reached.add(project.id));
       } else if (activity.projectId) {
@@ -94,12 +101,14 @@ function projectsReachedThisWeek(contacts: Contact[], nowValue: string) {
 }
 
 function unreachedProjectCount(projects: Project[], contacts: Contact[]) {
-  const byId = new Map(contacts.map((contact) => [contact.id, contact]));
+  const reachedProjectIds = new Set<string>();
+  contacts.forEach((contact) => {
+    contact.activities.forEach((activity) => {
+      if (activity.projectId && isOutreachActivity(activity)) reachedProjectIds.add(activity.projectId);
+    });
+  });
   return projects.filter(
-    (project) =>
-      !project.contactIds.some((contactId) =>
-        byId.get(contactId)?.activities.some((activity) => outreachTypes.has(activity.type)),
-      ),
+    (project) => !reachedProjectIds.has(project.id),
   ).length;
 }
 
@@ -108,7 +117,31 @@ function openFollowUpCount(contacts: Contact[]) {
 }
 
 function lifecycleClass(lifecycle: Lifecycle) {
-  return lifecycle ? lifecycle.toLowerCase() : "blank";
+  return lifecycle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function workflowLabel(contact: Contact) {
+  if (contact.lifecycle === "MQL") return "Sales handover";
+  if (contact.lifecycle === "SQL") return "Sales follow-up";
+  if (contact.lifecycle === "Customer/Order") return "Customer / order";
+  if (contact.lifecycle === "Specified") return "Specification won";
+  if (contact.lifecycle === "Nurture") return "Nurture";
+  const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
+  return `${contact.step + 1}. ${step.name}`;
+}
+
+function handoverNextAction(contact: Contact) {
+  const context = `${contact.comments} ${contact.lastTouchpoint}`.toLowerCase();
+  if (context.includes("sample")) {
+    return "Follow up for sample feedback, confirm the active specification need and decision owner, then book a technical review. Move to SQL once need, timing, and ownership are confirmed.";
+  }
+  if (context.includes("refer") || context.includes("introduc")) {
+    return "Contact the referred stakeholder with the existing project context, confirm their role and timing, and book a discovery call. Move to SQL when the opportunity is qualified.";
+  }
+  if (context.includes("meeting") || context.includes("lunch")) {
+    return "Confirm the meeting agenda, attendees, relevant applications, and samples or technical documents needed. Move to SQL after the project need and buying process are validated.";
+  }
+  return "Review the response, confirm the project, stakeholder, material need, and decision timing, then schedule the next conversation. Move to SQL when the opportunity is qualified.";
 }
 
 function dueLabel(dateValue: string) {
@@ -194,9 +227,11 @@ export default function CrmApp() {
           const saved = workflow[contact.id];
           if (!saved) return { ...contact, owner: contactOwners[contact.id] || contact.owner };
           const activityIds = new Set(contact.activities.map((activity) => activity.id));
+          const savedLifecycle = lifecycleStages.includes(saved.lifecycle) ? saved.lifecycle : contact.lifecycle;
           return {
             ...contact,
             ...saved,
+            lifecycle: savedLifecycle,
             owner: contactOwners[contact.id] || contact.owner,
             activities: [...saved.activities.filter((activity) => !activityIds.has(activity.id)), ...contact.activities],
           };
@@ -255,10 +290,14 @@ export default function CrmApp() {
         let updated: Contact;
         if (lifecycle === "MQL") {
           updated = { ...contact, lifecycle, campaignStatus: "Stopped – MQL", dueDate: "" };
+        } else if (lifecycle === "SQL") {
+          updated = { ...contact, lifecycle, campaignStatus: "Sales follow-up", dueDate: "" };
+        } else if (lifecycle === "Customer/Order") {
+          updated = { ...contact, lifecycle, campaignStatus: "Closed – Customer", dueDate: "" };
+        } else if (lifecycle === "Specified") {
+          updated = { ...contact, lifecycle, campaignStatus: "Closed – Specified", dueDate: "" };
         } else if (lifecycle === "Nurture") {
           updated = { ...contact, lifecycle, campaignStatus: "Paused – Nurture", dueDate: "" };
-        } else if (lifecycle === "Disqualified") {
-          updated = { ...contact, lifecycle, campaignStatus: "Closed", dueDate: "" };
         } else {
           updated = { ...contact, lifecycle, campaignStatus: contact.activities.length ? "Active" : "Not started", dueDate: new Date().toISOString().slice(0, 10) };
         }
@@ -358,7 +397,7 @@ function ContactsView({ contacts, allContacts, weeklyReached, unreached, openFol
   return <section className="view"><PageHeader title="Contacts"><a href={sourceSheetUrl} target="_blank" rel="noreferrer">{sourceMeta.tab}</a></PageHeader>
     <button className="target-strip" onClick={onTargets}><span><small>THIS WEEK</small><b>Projects reached through outreach</b></span><strong>{weeklyReached} / {weeklyProjectTarget}</strong><em><i style={{ width: `${targetPercent}%` }} /></em><span>{Math.max(0, weeklyProjectTarget - weeklyReached)} remaining</span><b>View target →</b></button>
     <div className="stats"><div><small>Due today</small><b>{dueToday}</b><p>{unreached} unreached projects + {openFollowUps} follow-ups</p></div><div><small>Overdue follow-ups</small><b className="danger">{overdue}</b></div><div><small>Contacts</small><b>{allContacts.length}</b></div><div><small>MQL handovers</small><b>{allContacts.filter((contact) => contact.lifecycle === "MQL").length}</b></div></div>
-    <div className="table-card"><table className="contacts-table"><thead><tr><th>Contact</th><th className="align-center">Lifecycle</th><th className="align-center">Projects</th><th className="align-center">Person LinkedIn</th><th className="align-center">Company LinkedIn</th><th className="align-center">Website</th><th>Current step</th><th>Last touchpoint</th><th>Assignee</th></tr></thead><tbody>{contacts.map((contact) => { const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)]; return <tr key={contact.id} onClick={() => onSelect(contact.id)}><td><div className="contact-cell"><span>{contact.initials}</span><div><b>{contact.name}</b><small>{contact.company}</small></div></div></td><td className="align-center"><span className={`pill ${lifecycleClass(contact.lifecycle)}`}>{contact.lifecycle || "—"}</span></td><td className="align-center">{contact.projects.length}</td><td className="align-center link-cell" onClick={(event) => event.stopPropagation()}><ContactLink href={contact.personalLinkedIn}>Profile</ContactLink></td><td className="align-center link-cell" onClick={(event) => event.stopPropagation()}><ContactLink href={contact.companyLinkedIn}>Company</ContactLink></td><td className="align-center link-cell" onClick={(event) => event.stopPropagation()}><ContactLink href={contact.companyWebsite}>Website</ContactLink></td><td>{contact.lifecycle === "MQL" ? "Sales handover" : `${contact.step + 1}. ${step.name}`}</td><td>{contact.lastActivity}</td><td>{contact.owner}</td></tr>; })}</tbody></table></div>
+    <div className="table-card"><table className="contacts-table"><thead><tr><th>Contact</th><th className="align-center">Lifecycle</th><th className="align-center">Projects</th><th>Current step</th><th>Last touchpoint</th><th>Assignee</th></tr></thead><tbody>{contacts.map((contact) => <tr key={contact.id} onClick={() => onSelect(contact.id)}><td><div className="contact-cell"><span>{contact.initials}</span><div><b>{contact.name}</b><small>{contact.company}</small></div></div></td><td className="align-center"><span className={`pill ${lifecycleClass(contact.lifecycle)}`}>{contact.lifecycle}</span></td><td className="align-center">{contact.projects.length}</td><td>{workflowLabel(contact)}</td><td>{contact.lastActivity}</td><td>{contact.owner}</td></tr>)}</tbody></table></div>
   </section>;
 }
 
@@ -388,7 +427,7 @@ function SequenceView({ content, onEdit }: { content: string[]; onEdit: (index: 
 }
 
 function HandoversView({ contacts, onSelect }: { contacts: Contact[]; onSelect: (id: string) => void }) {
-  return <section className="view"><PageHeader title="MQL handovers"/><div className="handover-grid">{contacts.map((contact) => <article key={contact.id}><header><div><h2>{contact.name}</h2><p>{contact.company}</p></div><span className="pill mql">Open</span></header><div className="handover-meta"><span><small>Assignee</small><b>{contact.owner}</b></span><span><small>Projects</small><b>{contact.projects.length}</b></span><span><small>Last touchpoint</small><b>{contact.lastActivity}</b></span></div><p>{contact.summary}</p><button className="primary" onClick={() => onSelect(contact.id)}>Review record</button></article>)}</div></section>;
+  return <section className="view"><PageHeader title="MQL handovers"/><div className="handover-grid">{contacts.map((contact) => <article key={contact.id}><header><div><h2>{contact.name}</h2><p>{contact.company}</p></div><span className="pill mql">Open</span></header><div className="handover-meta"><span><small>Assignee</small><b>{contact.owner}</b></span><span><small>Projects</small><b>{contact.projects.length}</b></span><span><small>Last touchpoint</small><b>{contact.lastActivity}</b></span></div><div className="handover-note"><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p></div><div className="handover-next"><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div><button className="primary" onClick={() => onSelect(contact.id)}>Review record</button></article>)}</div></section>;
 }
 
 function ContactLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -397,7 +436,8 @@ function ContactLink({ href, children }: { href: string; children: React.ReactNo
 
 function ContactRecord({ contact, onBack, onLifecycle, onOwner, onWork }: { contact: Contact; onBack: () => void; onLifecycle: (id: string, lifecycle: Lifecycle) => void; onOwner: (id: string, owner: string) => void; onWork: () => void }) {
   const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
-  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div><button className="primary" onClick={onWork}>{contact.lifecycle === "MQL" ? "Review handover" : "Work current task"}</button></header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}><option value="">—</option><option>Lead</option><option>MQL</option><option>Nurture</option><option>Disqualified</option></select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<input className="owner-input" value={contact.owner} onChange={(event) => onOwner(contact.id, event.target.value)} /></label></div></aside><div><div className="panel current"><h3>{contact.lifecycle === "MQL" ? "Sales handover" : `Step ${contact.step + 1} · ${step.name}`}</h3><p>{contact.lifecycle === "MQL" ? "Sequence stopped at MQL." : `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}`}</p>{contact.lifecycle !== "MQL" && <button className="primary" onClick={onWork}>Work task</button>}</div><div className="panel"><h3>Last touchpoint from sheet</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p></div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Comments:</b> {contact.comments}</p>}</div><div className="panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
+  const sequenceActive = contact.lifecycle === "Prospect" || contact.lifecycle === "Lead";
+  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div>{sequenceActive && <button className="primary" onClick={onWork}>Work current task</button>}</header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}>{lifecycleStages.map((lifecycle) => <option key={lifecycle}>{lifecycle}</option>)}</select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<input className="owner-input" value={contact.owner} onChange={(event) => onOwner(contact.id, event.target.value)} /></label></div></aside><div><div className="panel current"><h3>{workflowLabel(contact)}</h3><p>{sequenceActive ? `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}` : `Outbound sequence ${contact.campaignStatus.toLowerCase()}.`}</p>{sequenceActive && <button className="primary" onClick={onWork}>Work task</button>}</div>{contact.lifecycle === "MQL" && <div className="panel handover-guidance"><h3>MQL handover</h3><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div>}<div className="panel"><h3>Last touchpoint from sheet</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p></div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Comments:</b> {contact.comments}</p>}</div><div className="panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
 }
 
 function TaskModal({ contact, template, onClose, onComplete }: { contact: Contact; template: string; onClose: () => void; onComplete: (id: string, outcome: string) => void }) {
