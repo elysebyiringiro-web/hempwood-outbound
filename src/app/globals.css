@@ -436,15 +436,35 @@ a { text-decoration: none; }
 .sequence-card > header > div { display: flex; gap: 11px; }
 .sequence-card h2 { margin: 0; font-size: 17px; }
 .sequence-card p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
-.sequence-step { display: grid; grid-template-columns: 42px 1fr 150px 100px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.sequence-step { display: grid; grid-template-columns: minmax(280px, 1fr) 130px minmax(150px, auto) 100px; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
 .sequence-step:last-child { border-bottom: 0; }
-.sequence-step > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--green-soft); color: var(--green-dark); font-size: 12px; font-weight: 700; }
-.sequence-step b,
-.sequence-step small { display: block; }
-.sequence-step b { font-size: 14px; }
-.sequence-step small,
+.sequence-step.selected { background: var(--green-soft); }
+.sequence-step-open { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.sequence-step-open > span:first-child { display: grid; flex: 0 0 auto; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--green-soft); color: var(--green-dark); font-size: 12px; font-weight: 700; }
+.sequence-step.selected .sequence-step-open > span:first-child { background: var(--green); color: var(--paper); }
+.sequence-step-open b,
+.sequence-step-open small { display: block; }
+.sequence-step-open b { font-size: 14px; }
+.sequence-step-open small,
 .sequence-step time { color: var(--muted); font-size: 12px; }
-.sequence-step button { border: 0; background: transparent; color: var(--green); font-size: 13px; font-weight: 600; text-align: right; }
+.sequence-count { color: var(--muted); font-size: 12px; text-align: left; }
+.sequence-count b { color: var(--ink); font-size: 14px; }
+.sequence-step > button:last-child { border: 0; background: transparent; color: var(--green); font-size: 13px; font-weight: 600; text-align: right; }
+
+.sequence-queue { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); }
+.sequence-queue > header { display: flex; align-items: center; justify-content: space-between; padding: 18px; border-bottom: 1px solid var(--line); }
+.sequence-queue h2 { margin: 3px 0; font-size: 20px; }
+.sequence-queue header small { color: var(--green-dark); font-size: 11px; font-weight: 700; letter-spacing: .25px; }
+.sequence-queue header p { margin: 0; color: var(--muted); font-size: 13px; }
+.queue-guidance { padding: 11px 18px; border-bottom: 1px solid var(--line); background: var(--green-soft); color: var(--green-dark); font-size: 13px; }
+.sequence-contact-list > article { display: grid; grid-template-columns: minmax(300px, 1fr) auto auto auto; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
+.sequence-contact-list > article:last-child { border-bottom: 0; }
+.sequence-contact-list time { color: var(--muted); font-size: 12px; }
+.sequence-contact-list .contact-cell small { max-width: 620px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sequence-empty { padding: 26px 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); text-align: center; }
+.sequence-queue .sequence-empty { border: 0; border-radius: 0; }
+.sequence-empty b { font-size: 14px; }
+.sequence-empty p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
 
 .handover-grid { display: grid; grid-template-columns: repeat(2, minmax(340px, 1fr)); gap: 12px; }
 .handover-grid > article { padding: 18px; }
@@ -572,6 +592,10 @@ a { text-decoration: none; }
   .task-list .secondary { display: none; }
   .modal-grid { grid-template-columns: 1fr; }
   .modal-grid > aside { border-top: 1px solid var(--line); border-left: 0; }
-  .sequence-step { grid-template-columns: 42px 1fr 90px; }
-  .sequence-step button { display: none; }
+  .sequence-step { grid-template-columns: 1fr auto; }
+  .sequence-step time,
+  .sequence-step > button:last-child { display: none; }
+  .sequence-contact-list > article { grid-template-columns: 1fr auto; }
+  .sequence-contact-list time,
+  .sequence-contact-list .secondary { display: none; }
 }

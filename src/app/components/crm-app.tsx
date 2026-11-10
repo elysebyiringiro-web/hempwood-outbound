@@ -18,7 +18,7 @@ type View = "contacts" | "targets" | "tasks" | "projects" | "sequences" | "hando
 const navItems: { id: View; label: string; icon: string }[] = [
   { id: "contacts", label: "Contacts", icon: "♙" },
   { id: "targets", label: "Weekly targets", icon: "◎" },
-  { id: "tasks", label: "Tasks", icon: "✓" },
+  { id: "tasks", label: "Today", icon: "✓" },
   { id: "projects", label: "Projects", icon: "⌂" },
   { id: "sequences", label: "Sequences", icon: "→" },
   { id: "handovers", label: "MQL handovers", icon: "◇" },
@@ -29,6 +29,7 @@ const projectOwnerKey = "hempwood-project-owners-v2";
 const sequenceContentKey = "hempwood-sequence-content-v2";
 const workflowStateKey = "hempwood-workflow-state-v2";
 const outreachTypes = new Set(["email", "call", "linkedin"]);
+const campaignTimeZone = "Africa/Kigali";
 
 function isOutreachActivity(activity: Contact["activities"][number]) {
   if (outreachTypes.has(activity.type)) return true;
@@ -144,12 +145,25 @@ function handoverNextAction(contact: Contact) {
   return "Review the response, confirm the project, stakeholder, material need, and decision timing, then schedule the next conversation. Move to SQL when the opportunity is qualified.";
 }
 
+function campaignDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: campaignTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dateKeyValue(dateValue: string) {
+  return new Date(`${dateValue}T00:00:00Z`).valueOf();
+}
+
 function dueLabel(dateValue: string) {
   if (!dateValue) return "No next action";
-  const today = new Date();
-  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const due = new Date(`${dateValue}T00:00:00Z`).valueOf();
-  const days = Math.round((due - todayUtc) / 86_400_000);
+  const due = dateKeyValue(dateValue);
+  const days = Math.round((due - dateKeyValue(campaignDateKey())) / 86_400_000);
   if (days === 0) return "Today";
   if (days < 0) return `${Math.abs(days)}d overdue`;
   if (days === 1) return "Tomorrow";
@@ -158,13 +172,16 @@ function dueLabel(dateValue: string) {
 
 function isOverdue(dateValue: string) {
   if (!dateValue) return false;
-  const today = new Date();
-  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  return new Date(`${dateValue}T00:00:00Z`).valueOf() < todayUtc;
+  return dateKeyValue(dateValue) < dateKeyValue(campaignDateKey());
+}
+
+function isReady(dateValue: string) {
+  if (!dateValue) return false;
+  return dateKeyValue(dateValue) <= dateKeyValue(campaignDateKey());
 }
 
 function nextDueDate(currentStep: number, nextStep: number) {
-  const due = new Date();
+  const due = new Date(`${campaignDateKey()}T00:00:00Z`);
   const gap = campaignSteps[nextStep].day - campaignSteps[currentStep].day;
   due.setUTCDate(due.getUTCDate() + gap);
   return due.toISOString().slice(0, 10);
@@ -267,7 +284,7 @@ export default function CrmApp() {
   const weeklyReached = projectsReachedThisWeek(contacts, sourceMeta.syncedAt);
   const unreached = unreachedProjectCount(projects, contacts);
   const openFollowUps = openFollowUpCount(contacts);
-  const dueWork = unreached + openFollowUps;
+  const dueTaskCount = contacts.filter((contact) => ["Active", "Not started"].includes(contact.campaignStatus) && isReady(contact.dueDate)).length;
   const targetPercent = Math.min(100, Math.round((weeklyReached / weeklyProjectTarget) * 100));
   function updateContactOwner(contactId: string, owner: string) {
     setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, owner } : contact)));
@@ -299,7 +316,7 @@ export default function CrmApp() {
         } else if (lifecycle === "Nurture") {
           updated = { ...contact, lifecycle, campaignStatus: "Paused – Nurture", dueDate: "" };
         } else {
-          updated = { ...contact, lifecycle, campaignStatus: contact.activities.length ? "Active" : "Not started", dueDate: new Date().toISOString().slice(0, 10) };
+          updated = { ...contact, lifecycle, campaignStatus: contact.activities.length ? "Active" : "Not started", dueDate: campaignDateKey() };
         }
         persistWorkflow(updated);
         return updated;
@@ -318,7 +335,7 @@ export default function CrmApp() {
           type: step.channel.toLowerCase() === "linkedin" ? ("linkedin" as const) : step.channel.toLowerCase() === "call" ? ("call" as const) : ("email" as const),
           title: `${step.name} · ${outcome}`,
           note: "Logged in the campaign workspace.",
-          date: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date()),
+          date: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: campaignTimeZone }).format(new Date()),
           dateValue: today,
           projectId: contact.projects[0]?.id ?? "",
         };
@@ -353,7 +370,7 @@ export default function CrmApp() {
           {navItems.map((item) => (
             <button key={item.id} className={view === item.id && !selected ? "active" : ""} onClick={() => { setSelectedId(null); setView(item.id); }}>
               <span>{item.icon}</span>{item.label}
-              {item.id === "tasks" && <i>{dueWork}</i>}
+              {item.id === "tasks" && <i>{dueTaskCount}</i>}
               {item.id === "handovers" && <i>{contacts.filter((contact) => contact.lifecycle === "MQL").length}</i>}
             </button>
           ))}
@@ -375,7 +392,7 @@ export default function CrmApp() {
             {view === "targets" && <TargetsView count={weeklyReached} percent={targetPercent} />}
             {view === "tasks" && <TasksView contacts={contacts} onWork={setTaskId} onSelect={setSelectedId} />}
             {view === "projects" && <ProjectsView projects={filteredProjects} contactNameById={contactNameById} onAssign={updateProjectOwner} />}
-            {view === "sequences" && <SequenceView content={sequenceContent} onEdit={setEditingSequence} />}
+            {view === "sequences" && <SequenceView content={sequenceContent} contacts={contacts} onEdit={setEditingSequence} onView={setSelectedId} onComplete={(contactId) => completeStep(contactId, "Completed")} />}
             {view === "handovers" && <HandoversView contacts={contacts.filter((contact) => contact.lifecycle === "MQL")} onSelect={setSelectedId} />}
           </>
         )}
@@ -409,21 +426,37 @@ function TargetsView({ count, percent }: { count: number; percent: number }) {
 
 function TasksView({ contacts, onWork, onSelect }: { contacts: Contact[]; onWork: (id: string) => void; onSelect: (id: string) => void }) {
   const tasks = contacts
-    .filter((contact) => ["Active", "Not started"].includes(contact.campaignStatus))
+    .filter((contact) => ["Active", "Not started"].includes(contact.campaignStatus) && isReady(contact.dueDate))
     .sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
-  return <section className="view"><PageHeader title="Tasks"/><div className="task-list">{tasks.map((contact) => {
+  return <section className="view"><PageHeader title="Today"><span className="count-label">{tasks.length} due</span></PageHeader>{tasks.length ? <div className="task-list">{tasks.map((contact) => {
     const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
     const label = dueLabel(contact.dueDate);
     return <article key={contact.id}><span className="task-icon">{step.channel === "Email" ? "✉" : step.channel === "Call" ? "⌕" : "in"}</span><div><b>{step.name}</b><p>{contact.name} · {contact.projects.map((project) => project.name).join(" + ")}</p></div><time className={isOverdue(contact.dueDate) ? "danger" : ""}>{label}</time><button className="secondary" onClick={() => onSelect(contact.id)}>View</button><button className="primary" onClick={() => onWork(contact.id)}>Work task</button></article>;
-  })}</div></section>;
+  })}</div> : <div className="sequence-empty"><b>Nothing else is due today.</b><p>Future sequence steps will appear here automatically on their scheduled date.</p></div>}</section>;
 }
 
 function ProjectsView({ projects, contactNameById, onAssign }: { projects: Project[]; contactNameById: Map<string, string>; onAssign: (id: string, owner: string) => void }) {
   return <section className="view"><PageHeader title="Projects"><span className="count-label">{projects.length} from Sample Projects</span></PageHeader><div className="table-card"><table><thead><tr><th>Project</th><th>Owner / applicant</th><th>Stage</th><th>Type</th><th>Contacts</th><th className="align-center">Source</th><th>Assignee</th></tr></thead><tbody>{projects.map((project) => <tr key={project.id}><td><b>{project.name}</b><small>{project.location}</small></td><td>{project.owner || "—"}</td><td>{project.stage || "—"}</td><td>{project.projectType || "—"}</td><td>{project.contactIds.map((id) => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact unavailable"}</td><td className="align-center">{project.source ? <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Open</a> : "—"}</td><td><input className="inline-input" aria-label={`Assignee for ${project.name}`} value={project.assignee} onChange={(event) => onAssign(project.id, event.target.value)} /></td></tr>)}</tbody></table></div></section>;
 }
 
-function SequenceView({ content, onEdit }: { content: string[]; onEdit: (index: number) => void }) {
-  return <section className="view"><PageHeader title="Sequences"/><article className="sequence-card"><header><div><span>→</span><div><h2>Early-design influence</h2><p>7 steps · 20 days · one sequence per person</p></div></div><span className="pill lead">Active</span></header>{campaignSteps.map((step, index) => <div className="sequence-step" key={step.name}><span>{index + 1}</span><div><b>{step.name}</b><small>{content[index]?.trim() ? "Content ready" : "Content needed"}</small></div><time>{step.channel} · Day {step.day}</time><button onClick={() => onEdit(index)}>Edit content</button></div>)}</article></section>;
+function SequenceView({ content, contacts, onEdit, onView, onComplete }: { content: string[]; contacts: Contact[]; onEdit: (index: number) => void; onView: (id: string) => void; onComplete: (id: string) => void }) {
+  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+  const queues = useMemo(() => {
+    const grouped = campaignSteps.map(() => ({ ready: [] as Contact[], scheduled: [] as Contact[] }));
+    contacts.forEach((contact) => {
+      const activeLifecycle = contact.lifecycle === "Prospect" || contact.lifecycle === "Lead";
+      if (!activeLifecycle || !["Active", "Not started"].includes(contact.campaignStatus)) return;
+      const queue = grouped[Math.min(contact.step, campaignSteps.length - 1)];
+      (isReady(contact.dueDate) ? queue.ready : queue.scheduled).push(contact);
+    });
+    return grouped;
+  }, [contacts]);
+  const selected = selectedStep === null ? null : campaignSteps[selectedStep];
+  const readyContacts = selectedStep === null ? [] : queues[selectedStep].ready;
+  const scheduledCount = selectedStep === null ? 0 : queues[selectedStep].scheduled.length;
+  const waitDays = selectedStep === null || selectedStep === campaignSteps.length - 1 ? null : campaignSteps[selectedStep + 1].day - campaignSteps[selectedStep].day;
+
+  return <section className="view"><PageHeader title="Sequences"/><article className="sequence-card"><header><div><span>→</span><div><h2>Early-design influence</h2><p>7 steps · 20 days · one sequence per person</p></div></div><span className="pill lead">Active</span></header>{campaignSteps.map((step, index) => { const ready = queues[index].ready.length; const scheduled = queues[index].scheduled.length; return <div className={`sequence-step ${selectedStep === index ? "selected" : ""}`} key={step.name}><button className="sequence-step-open" onClick={() => setSelectedStep(index)}><span>{index + 1}</span><span><b>{step.name}</b><small>{content[index]?.trim() ? "Content ready" : "Content needed"}</small></span></button><time>{step.channel} · Day {step.day}</time><span className="sequence-count"><b>{ready}</b> ready{scheduled ? ` · ${scheduled} scheduled` : ""}</span><button onClick={() => onEdit(index)}>Edit content</button></div>; })}</article>{selected && <article className="sequence-queue"><header><div><small>STEP {selectedStep! + 1} · {selected.channel} · DAY {selected.day}</small><h2>{selected.name}</h2><p>{readyContacts.length} ready now · {scheduledCount} scheduled</p></div><button className="secondary" onClick={() => setSelectedStep(null)}>Close</button></header><div className="queue-guidance">{waitDays === null ? "Completing this final step moves the contact to Nurture." : `Complete the task now; the next step becomes ready in ${waitDays} day${waitDays === 1 ? "" : "s"}.`}</div>{readyContacts.length ? <div className="sequence-contact-list">{readyContacts.map((contact) => <article key={contact.id}><div className="contact-cell"><span>{contact.initials}</span><div><b>{contact.name}</b><small>{contact.company} · {contact.projects.map((project) => project.name).join(" + ")}</small></div></div><time>{dueLabel(contact.dueDate)}</time><button className="secondary" onClick={() => onView(contact.id)}>View</button><button className="primary" onClick={() => onComplete(contact.id)}>Complete</button></article>)}</div> : <div className="sequence-empty"><b>No contacts are ready for this step.</b><p>Scheduled contacts will appear automatically when their due date arrives.</p></div>}</article>}</section>;
 }
 
 function HandoversView({ contacts, onSelect }: { contacts: Contact[]; onSelect: (id: string) => void }) {
