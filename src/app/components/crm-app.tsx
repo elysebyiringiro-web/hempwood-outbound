@@ -18,8 +18,8 @@ import {
 type View = "contacts" | "targets" | "tasks" | "projects" | "sequences" | "handovers";
 
 const navItems: { id: View; label: string; icon: string }[] = [
-  { id: "contacts", label: "Contacts", icon: "♙" },
   { id: "targets", label: "Dashboard", icon: "◎" },
+  { id: "contacts", label: "Contacts", icon: "♙" },
   { id: "tasks", label: "Today", icon: "✓" },
   { id: "projects", label: "Projects", icon: "⌂" },
   { id: "sequences", label: "Sequences", icon: "→" },
@@ -216,7 +216,7 @@ function personalizedCopy(contact: Contact, template: string) {
 export default function CrmApp() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [view, setView] = useState<View>("contacts");
+  const [view, setView] = useState<View>("targets");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -438,13 +438,14 @@ function ContactsView({ contacts, allContacts, weeklyReached, unreached, dueFoll
 function DashboardView({ count, percent, projects, contacts, unreached, dueFollowUps, scheduledFollowUps }: { count: number; percent: number; projects: Project[]; contacts: Contact[]; unreached: number; dueFollowUps: number; scheduledFollowUps: number }) {
   const reached = Math.max(0, projects.length - unreached);
   const coverage = projects.length ? Math.round((reached / projects.length) * 100) : 0;
-  const outcomes = ["MQL", "SQL", "Specified", "Customer/Order"] as const;
-  return <section className="view dashboard"><PageHeader title="Dashboard"><a href="https://docs.google.com/spreadsheets/d/1aV1t5wTRRSkyO1vzysj_6z1UGFKWVuoZYLBTDPLv6Js/edit" target="_blank" rel="noreferrer">Weekly target source</a></PageHeader>
+  const leadCount = contacts.filter((contact) => contact.lifecycle === "Lead").length;
+  const pipeline = ["Prospect", "Lead", "MQL", "SQL", "Specified", "Customer/Order"] as const;
+  return <section className="view dashboard"><div className="dashboard-heading"><div><span>CAMPAIGN OVERVIEW</span><h1>Dashboard</h1><p>Focus the team on the work that moves projects forward.</p></div><a href="https://docs.google.com/spreadsheets/d/1aV1t5wTRRSkyO1vzysj_6z1UGFKWVuoZYLBTDPLv6Js/edit" target="_blank" rel="noreferrer">View target source ↗</a></div>
     <div className="dashboard-grid">
-      <article className="gauge-card"><header><small>Weekly project outreach</small><span className={`pace ${count >= weeklyProjectTarget ? "good" : ""}`}>{count >= weeklyProjectTarget ? "Target reached" : "In progress"}</span></header><div className="speedometer" style={{ "--gauge-angle": `${Math.min(180, Math.round(percent * 1.8))}deg` } as React.CSSProperties}><div><strong>{count}</strong><span>of {weeklyProjectTarget}</span></div></div><footer><b>{Math.max(0, weeklyProjectTarget - count)} remaining</b><span>{percent}% complete</span></footer></article>
-      <div className="dashboard-counts"><article><small>Follow-ups due now</small><strong>{dueFollowUps}</strong><span>Contact tasks ready</span></article><article><small>Unreached projects</small><strong>{unreached}</strong><span>No project outreach logged</span></article><article><small>Scheduled next</small><strong>{scheduledFollowUps}</strong><span>Future-dated follow-ups</span></article></div>
-      <article className="coverage-card"><div className="donut" style={{ "--coverage": `${coverage}%` } as React.CSSProperties}><span><strong>{coverage}%</strong><small>covered</small></span></div><div><small>Project coverage</small><h2>{reached} of {projects.length}</h2><p>{unreached} projects remain unreached.</p></div></article>
-      <article className="outcome-card"><header><small>Qualified outcomes</small><span>{contacts.length} contacts</span></header><div>{outcomes.map((stage) => <span key={stage}><small>{stage}</small><b>{contacts.filter((contact) => contact.lifecycle === stage).length}</b></span>)}</div></article>
+      <article className="dashboard-hero"><div className="dashboard-hero-copy"><span className="dashboard-eyebrow">WEEKLY PROJECT OUTREACH</span><div className="dashboard-total"><strong>{count}</strong><span>of {weeklyProjectTarget}<small>projects reached</small></span></div><div className="dashboard-progress"><i style={{ width: `${percent}%` }} /></div><footer><b>{Math.max(0, weeklyProjectTarget - count)} projects to target</b><span>{percent}% complete</span></footer></div><div className="dashboard-ring" style={{ "--progress": `${percent}%` } as React.CSSProperties}><div><strong>{percent}%</strong><span>weekly pace</span></div></div></article>
+      <div className="dashboard-counts"><article className="metric-due"><span className="metric-icon">✓</span><div><small>Follow-ups due</small><strong>{dueFollowUps}</strong><span>Ready to work now</span></div></article><article className="metric-leads"><span className="metric-icon">↗</span><div><small>Leads</small><strong>{leadCount}</strong><span>Active lead-stage contacts</span></div></article><article><span className="metric-icon">○</span><div><small>Unreached projects</small><strong>{unreached}</strong><span>No outreach logged</span></div></article><article><span className="metric-icon">→</span><div><small>Scheduled next</small><strong>{scheduledFollowUps}</strong><span>Future follow-ups</span></div></article></div>
+      <article className="coverage-card"><div className="donut" style={{ "--coverage": `${coverage}%` } as React.CSSProperties}><span><strong>{coverage}%</strong><small>covered</small></span></div><div><span className="dashboard-eyebrow">PROJECT COVERAGE</span><h2>{reached} of {projects.length}</h2><p>projects have outreach activity logged.</p><b>{unreached} still need a first touch</b></div></article>
+      <article className="pipeline-card"><header><div><span className="dashboard-eyebrow">LIFECYCLE PIPELINE</span><h2>Contacts by stage</h2></div><span>{contacts.length} total contacts</span></header><div className="pipeline-stages">{pipeline.map((stage, index) => { const stageCount = contacts.filter((contact) => contact.lifecycle === stage).length; return <div key={stage}><span><i>{index + 1}</i>{stage}</span><strong>{stageCount}</strong></div>; })}</div></article>
     </div>
   </section>;
 }
