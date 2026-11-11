@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   campaignSteps,
+  contactTypes,
   defaultSequenceContent,
   lifecycleStages,
   sourceSheetUrl,
   type Contact,
+  type ContactType,
   type CrmData,
   type Lifecycle,
   type Project,
@@ -17,7 +19,7 @@ type View = "contacts" | "targets" | "tasks" | "projects" | "sequences" | "hando
 
 const navItems: { id: View; label: string; icon: string }[] = [
   { id: "contacts", label: "Contacts", icon: "♙" },
-  { id: "targets", label: "Weekly targets", icon: "◎" },
+  { id: "targets", label: "Dashboard", icon: "◎" },
   { id: "tasks", label: "Today", icon: "✓" },
   { id: "projects", label: "Projects", icon: "⌂" },
   { id: "sequences", label: "Sequences", icon: "→" },
@@ -25,6 +27,7 @@ const navItems: { id: View; label: string; icon: string }[] = [
 ];
 
 const contactOwnerKey = "hempwood-contact-owners-v2";
+const contactTypeKey = "hempwood-contact-types-v1";
 const projectOwnerKey = "hempwood-project-owners-v2";
 const sequenceContentKey = "hempwood-sequence-content-v2";
 const workflowStateKey = "hempwood-workflow-state-v2";
@@ -113,8 +116,12 @@ function unreachedProjectCount(projects: Project[], contacts: Contact[]) {
   ).length;
 }
 
-function openFollowUpCount(contacts: Contact[]) {
-  return contacts.filter((contact) => contact.step > 0 && contact.campaignStatus === "Active").length;
+function dueFollowUpCount(contacts: Contact[]) {
+  return contacts.filter((contact) => contact.step > 0 && contact.campaignStatus === "Active" && isReady(contact.dueDate)).length;
+}
+
+function scheduledFollowUpCount(contacts: Contact[]) {
+  return contacts.filter((contact) => contact.step > 0 && contact.campaignStatus === "Active" && !isReady(contact.dueDate)).length;
 }
 
 function lifecycleClass(lifecycle: Lifecycle) {
@@ -238,16 +245,20 @@ export default function CrmApp() {
         if (!response.ok) throw new Error("The client-facing sheet could not be loaded.");
         const data = (await response.json()) as CrmData;
         const contactOwners = readStoredMap(contactOwnerKey);
+        const storedContactTypes = readStoredMap(contactTypeKey);
         const projectOwners = readStoredMap(projectOwnerKey);
         const workflow = readWorkflowState();
         setContacts(data.contacts.map((contact) => {
+          const storedContactType = storedContactTypes[contact.id] as ContactType | undefined;
+          const contactType = storedContactType && contactTypes.includes(storedContactType) ? storedContactType : contact.contactType;
           const saved = workflow[contact.id];
-          if (!saved) return { ...contact, owner: contactOwners[contact.id] || contact.owner };
+          if (!saved) return { ...contact, contactType, owner: contactOwners[contact.id] || contact.owner };
           const activityIds = new Set(contact.activities.map((activity) => activity.id));
           const savedLifecycle = lifecycleStages.includes(saved.lifecycle) ? saved.lifecycle : contact.lifecycle;
           return {
             ...contact,
             ...saved,
+            contactType,
             lifecycle: savedLifecycle,
             owner: contactOwners[contact.id] || contact.owner,
             activities: [...saved.activities.filter((activity) => !activityIds.has(activity.id)), ...contact.activities],
@@ -283,7 +294,8 @@ export default function CrmApp() {
   const taskContact = contacts.find((contact) => contact.id === taskId) ?? null;
   const weeklyReached = projectsReachedThisWeek(contacts, sourceMeta.syncedAt);
   const unreached = unreachedProjectCount(projects, contacts);
-  const openFollowUps = openFollowUpCount(contacts);
+  const dueFollowUps = dueFollowUpCount(contacts);
+  const scheduledFollowUps = scheduledFollowUpCount(contacts);
   const dueTaskCount = contacts.filter((contact) => ["Active", "Not started"].includes(contact.campaignStatus) && isReady(contact.dueDate)).length;
   const targetPercent = Math.min(100, Math.round((weeklyReached / weeklyProjectTarget) * 100));
   function updateContactOwner(contactId: string, owner: string) {
@@ -291,6 +303,13 @@ export default function CrmApp() {
     const stored = readStoredMap(contactOwnerKey);
     stored[contactId] = owner;
     window.localStorage.setItem(contactOwnerKey, JSON.stringify(stored));
+  }
+
+  function updateContactType(contactId: string, contactType: ContactType) {
+    setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, contactType } : contact)));
+    const stored = readStoredMap(contactTypeKey);
+    stored[contactId] = contactType;
+    window.localStorage.setItem(contactTypeKey, JSON.stringify(stored));
   }
 
   function updateProjectOwner(projectId: string, assignee: string) {
@@ -385,11 +404,11 @@ export default function CrmApp() {
         </header>
 
         {syncError ? <div className="sync-error"><b>Sheet sync failed</b><p>{syncError}</p><button className="primary" onClick={() => setRefreshToken((value) => value + 1)}>Try again</button></div> : loading && !contacts.length ? <div className="loading-state">Loading projects and contacts from {sourceMeta.tab}…</div> : selected ? (
-          <ContactRecord contact={selected} onBack={() => setSelectedId(null)} onLifecycle={updateLifecycle} onOwner={updateContactOwner} onWork={() => setTaskId(selected.id)} />
+          <ContactRecord contact={selected} onBack={() => setSelectedId(null)} onLifecycle={updateLifecycle} onContactType={updateContactType} onOwner={updateContactOwner} onWork={() => setTaskId(selected.id)} />
         ) : (
           <>
-            {view === "contacts" && <ContactsView contacts={filteredContacts} allContacts={contacts} weeklyReached={weeklyReached} unreached={unreached} openFollowUps={openFollowUps} targetPercent={targetPercent} sourceMeta={sourceMeta} onSelect={setSelectedId} onTargets={() => setView("targets")} />}
-            {view === "targets" && <TargetsView count={weeklyReached} percent={targetPercent} />}
+            {view === "contacts" && <ContactsView contacts={filteredContacts} allContacts={contacts} weeklyReached={weeklyReached} unreached={unreached} dueFollowUps={dueFollowUps} scheduledFollowUps={scheduledFollowUps} dueTaskCount={dueTaskCount} targetPercent={targetPercent} sourceMeta={sourceMeta} onSelect={setSelectedId} onTargets={() => setView("targets")} />}
+            {view === "targets" && <DashboardView count={weeklyReached} percent={targetPercent} projects={projects} contacts={contacts} unreached={unreached} dueFollowUps={dueFollowUps} scheduledFollowUps={scheduledFollowUps} />}
             {view === "tasks" && <TasksView contacts={contacts} onWork={setTaskId} onSelect={setSelectedId} />}
             {view === "projects" && <ProjectsView projects={filteredProjects} contactNameById={contactNameById} onAssign={updateProjectOwner} />}
             {view === "sequences" && <SequenceView content={sequenceContent} contacts={contacts} onEdit={setEditingSequence} onView={setSelectedId} onComplete={(contactId) => completeStep(contactId, "Completed")} />}
@@ -408,19 +427,25 @@ function PageHeader({ title, children }: { title: string; children?: React.React
   return <div className="page-header"><h1>{title}</h1>{children}</div>;
 }
 
-function ContactsView({ contacts, allContacts, weeklyReached, unreached, openFollowUps, targetPercent, sourceMeta, onSelect, onTargets }: { contacts: Contact[]; allContacts: Contact[]; weeklyReached: number; unreached: number; openFollowUps: number; targetPercent: number; sourceMeta: { tab: string; syncedAt: string }; onSelect: (id: string) => void; onTargets: () => void }) {
-  const dueToday = unreached + openFollowUps;
-  const overdue = allContacts.filter((contact) => isOverdue(contact.dueDate)).length;
+function ContactsView({ contacts, allContacts, weeklyReached, unreached, dueFollowUps, scheduledFollowUps, dueTaskCount, targetPercent, sourceMeta, onSelect, onTargets }: { contacts: Contact[]; allContacts: Contact[]; weeklyReached: number; unreached: number; dueFollowUps: number; scheduledFollowUps: number; dueTaskCount: number; targetPercent: number; sourceMeta: { tab: string; syncedAt: string }; onSelect: (id: string) => void; onTargets: () => void }) {
   return <section className="view"><PageHeader title="Contacts"><a href={sourceSheetUrl} target="_blank" rel="noreferrer">{sourceMeta.tab}</a></PageHeader>
-    <button className="target-strip" onClick={onTargets}><span><small>THIS WEEK</small><b>Projects reached through outreach</b></span><strong>{weeklyReached} / {weeklyProjectTarget}</strong><em><i style={{ width: `${targetPercent}%` }} /></em><span>{Math.max(0, weeklyProjectTarget - weeklyReached)} remaining</span><b>View target →</b></button>
-    <div className="stats"><div><small>Due today</small><b>{dueToday}</b><p>{unreached} unreached projects + {openFollowUps} follow-ups</p></div><div><small>Overdue follow-ups</small><b className="danger">{overdue}</b></div><div><small>Contacts</small><b>{allContacts.length}</b></div><div><small>MQL handovers</small><b>{allContacts.filter((contact) => contact.lifecycle === "MQL").length}</b></div></div>
-    <div className="table-card"><table className="contacts-table"><thead><tr><th>Contact</th><th className="align-center">Lifecycle</th><th className="align-center">Projects</th><th>Current step</th><th>Last touchpoint</th><th>Assignee</th></tr></thead><tbody>{contacts.map((contact) => <tr key={contact.id} onClick={() => onSelect(contact.id)}><td><div className="contact-cell"><span>{contact.initials}</span><div><b>{contact.name}</b><small>{contact.company}</small></div></div></td><td className="align-center"><span className={`pill ${lifecycleClass(contact.lifecycle)}`}>{contact.lifecycle}</span></td><td className="align-center">{contact.projects.length}</td><td>{workflowLabel(contact)}</td><td>{contact.lastActivity}</td><td>{contact.owner}</td></tr>)}</tbody></table></div>
+    <button className="target-strip" onClick={onTargets}><span><small>THIS WEEK</small><b>Projects reached through outreach</b></span><strong>{weeklyReached} / {weeklyProjectTarget}</strong><em><i style={{ width: `${targetPercent}%` }} /></em><span>{Math.max(0, weeklyProjectTarget - weeklyReached)} remaining</span><b>View dashboard →</b></button>
+    <div className="stats"><div><small>Due now</small><b>{dueTaskCount}</b><p>{dueFollowUps} follow-ups ready</p></div><div><small>Unreached projects</small><b>{unreached}</b></div><div><small>Scheduled</small><b>{scheduledFollowUps}</b><p>Future follow-ups</p></div><div><small>MQL handovers</small><b>{allContacts.filter((contact) => contact.lifecycle === "MQL").length}</b></div></div>
+    <div className="table-card"><table className="contacts-table"><thead><tr><th>Contact</th><th>Contact type</th><th className="align-center">Lifecycle</th><th className="align-center">Projects</th><th>Current step</th><th>Last touchpoint</th><th>Assignee</th></tr></thead><tbody>{contacts.map((contact) => <tr key={contact.id} onClick={() => onSelect(contact.id)}><td><div className="contact-cell"><span>{contact.initials}</span><div><b>{contact.name}</b><small>{contact.company}</small></div></div></td><td><span className="contact-type">{contact.contactType}</span></td><td className="align-center"><span className={`pill ${lifecycleClass(contact.lifecycle)}`}>{contact.lifecycle}</span></td><td className="align-center">{contact.projects.length}</td><td>{workflowLabel(contact)}</td><td>{contact.lastActivity}</td><td>{contact.owner}</td></tr>)}</tbody></table></div>
   </section>;
 }
 
-function TargetsView({ count, percent }: { count: number; percent: number }) {
-  return <section className="view"><PageHeader title="Weekly targets"><a href="https://docs.google.com/spreadsheets/d/1aV1t5wTRRSkyO1vzysj_6z1UGFKWVuoZYLBTDPLv6Js/edit" target="_blank" rel="noreferrer">HempWood targets</a></PageHeader>
-    <article className="target-card"><div><span className="target-icon">→</span><span className={`pace ${count >= weeklyProjectTarget ? "good" : ""}`}>{count >= weeklyProjectTarget ? "Target reached" : "In progress"}</span></div><small>Unique projects reached through email, phone, or LinkedIn this week</small><h2>{count}<span> / {weeklyProjectTarget}</span></h2><em><i style={{ width: `${percent}%` }} /></em><p>{Math.max(0, weeklyProjectTarget - count)} projects remaining this week</p></article>
+function DashboardView({ count, percent, projects, contacts, unreached, dueFollowUps, scheduledFollowUps }: { count: number; percent: number; projects: Project[]; contacts: Contact[]; unreached: number; dueFollowUps: number; scheduledFollowUps: number }) {
+  const reached = Math.max(0, projects.length - unreached);
+  const coverage = projects.length ? Math.round((reached / projects.length) * 100) : 0;
+  const outcomes = ["MQL", "SQL", "Specified", "Customer/Order"] as const;
+  return <section className="view dashboard"><PageHeader title="Dashboard"><a href="https://docs.google.com/spreadsheets/d/1aV1t5wTRRSkyO1vzysj_6z1UGFKWVuoZYLBTDPLv6Js/edit" target="_blank" rel="noreferrer">Weekly target source</a></PageHeader>
+    <div className="dashboard-grid">
+      <article className="gauge-card"><header><small>Weekly project outreach</small><span className={`pace ${count >= weeklyProjectTarget ? "good" : ""}`}>{count >= weeklyProjectTarget ? "Target reached" : "In progress"}</span></header><div className="speedometer" style={{ "--gauge-angle": `${Math.min(180, Math.round(percent * 1.8))}deg` } as React.CSSProperties}><div><strong>{count}</strong><span>of {weeklyProjectTarget}</span></div></div><footer><b>{Math.max(0, weeklyProjectTarget - count)} remaining</b><span>{percent}% complete</span></footer></article>
+      <div className="dashboard-counts"><article><small>Follow-ups due now</small><strong>{dueFollowUps}</strong><span>Contact tasks ready</span></article><article><small>Unreached projects</small><strong>{unreached}</strong><span>No project outreach logged</span></article><article><small>Scheduled next</small><strong>{scheduledFollowUps}</strong><span>Future-dated follow-ups</span></article></div>
+      <article className="coverage-card"><div className="donut" style={{ "--coverage": `${coverage}%` } as React.CSSProperties}><span><strong>{coverage}%</strong><small>covered</small></span></div><div><small>Project coverage</small><h2>{reached} of {projects.length}</h2><p>{unreached} projects remain unreached.</p></div></article>
+      <article className="outcome-card"><header><small>Qualified outcomes</small><span>{contacts.length} contacts</span></header><div>{outcomes.map((stage) => <span key={stage}><small>{stage}</small><b>{contacts.filter((contact) => contact.lifecycle === stage).length}</b></span>)}</div></article>
+    </div>
   </section>;
 }
 
@@ -467,10 +492,10 @@ function ContactLink({ href, children }: { href: string; children: React.ReactNo
   return href ? <a className="link" href={href} target="_blank" rel="noreferrer">{children}</a> : <span>—</span>;
 }
 
-function ContactRecord({ contact, onBack, onLifecycle, onOwner, onWork }: { contact: Contact; onBack: () => void; onLifecycle: (id: string, lifecycle: Lifecycle) => void; onOwner: (id: string, owner: string) => void; onWork: () => void }) {
+function ContactRecord({ contact, onBack, onLifecycle, onContactType, onOwner, onWork }: { contact: Contact; onBack: () => void; onLifecycle: (id: string, lifecycle: Lifecycle) => void; onContactType: (id: string, contactType: ContactType) => void; onOwner: (id: string, owner: string) => void; onWork: () => void }) {
   const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
   const sequenceActive = contact.lifecycle === "Prospect" || contact.lifecycle === "Lead";
-  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div>{sequenceActive && <button className="primary" onClick={onWork}>Work current task</button>}</header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}>{lifecycleStages.map((lifecycle) => <option key={lifecycle}>{lifecycle}</option>)}</select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<input className="owner-input" value={contact.owner} onChange={(event) => onOwner(contact.id, event.target.value)} /></label></div></aside><div><div className="panel current"><h3>{workflowLabel(contact)}</h3><p>{sequenceActive ? `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}` : `Outbound sequence ${contact.campaignStatus.toLowerCase()}.`}</p>{sequenceActive && <button className="primary" onClick={onWork}>Work task</button>}</div>{contact.lifecycle === "MQL" && <div className="panel handover-guidance"><h3>MQL handover</h3><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div>}<div className="panel"><h3>Last touchpoint from sheet</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p></div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Comments:</b> {contact.comments}</p>}</div><div className="panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
+  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div>{sequenceActive && <button className="primary" onClick={onWork}>Work current task</button>}</header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}>{lifecycleStages.map((lifecycle) => <option key={lifecycle}>{lifecycle}</option>)}</select></label><label>Contact type<select value={contact.contactType} onChange={(event) => onContactType(contact.id, event.target.value as ContactType)}>{contactTypes.map((contactType) => <option key={contactType}>{contactType}</option>)}</select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<input className="owner-input" value={contact.owner} onChange={(event) => onOwner(contact.id, event.target.value)} /></label></div></aside><div><div className="panel current"><h3>{workflowLabel(contact)}</h3><p>{sequenceActive ? `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}` : `Outbound sequence ${contact.campaignStatus.toLowerCase()}.`}</p>{sequenceActive && <button className="primary" onClick={onWork}>Work task</button>}</div>{contact.lifecycle === "MQL" && <div className="panel handover-guidance"><h3>MQL handover</h3><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div>}<div className="panel"><h3>Last touchpoint from sheet</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p></div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Comments:</b> {contact.comments}</p>}</div><div className="panel project-panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
 }
 
 function TaskModal({ contact, template, onClose, onComplete }: { contact: Contact; template: string; onClose: () => void; onComplete: (id: string, outcome: string) => void }) {

@@ -10,6 +10,10 @@ export const lifecycleStages = [
 
 export type Lifecycle = (typeof lifecycleStages)[number];
 
+export const contactTypes = ["Architect", "General Contractor", "Owner", "Landlord"] as const;
+
+export type ContactType = (typeof contactTypes)[number];
+
 export type Project = {
   id: string;
   name: string;
@@ -49,6 +53,7 @@ export type Contact = {
   email: string;
   phone: string;
   relationship: string;
+  contactType: ContactType;
   lifecycle: Lifecycle;
   sequenceStatus: string;
   callStatus: string;

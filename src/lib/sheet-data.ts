@@ -8,6 +8,7 @@ import {
   sourceSheetUrl,
   type Activity,
   type Contact,
+  type ContactType,
   type CrmData,
   type Lifecycle,
   type Project,
@@ -65,6 +66,17 @@ function inferCompany(row: SheetRow) {
   const firm = compact(row["Architecture Firm"]);
   if (firm && firm !== "-" && !firm.toLowerCase().includes("to be selected")) return firm;
   return compact(row["Owner / Applicant"]);
+}
+
+function inferContactType(row: SheetRow, company: string): ContactType {
+  const audience = compact(row["Audience Type"]).toLowerCase();
+  const evidence = [audience, compact(row.Role), company, compact(row["Owner / Applicant"])]
+    .join(" ")
+    .toLowerCase();
+  if (audience.includes("contractor") || /\b(general contractor|construction manager|design-builder|builder)\b/.test(evidence)) return "General Contractor";
+  if (/\b(landlord|property manager|leasing manager)\b/.test(evidence)) return "Landlord";
+  if (audience.includes("architect") || /\b(architect|architecture|interior designer|design principal)\b/.test(evidence)) return "Architect";
+  return "Owner";
 }
 
 const verifiedWebsiteDomains = new Set([
@@ -250,6 +262,7 @@ export async function getCrmData(): Promise<CrmData> {
         email: email === "-" ? "" : email,
         phone: compact(row.Phone),
         relationship: compact(row["Audience Type"]),
+        contactType: inferContactType(row, company),
         lifecycle,
         sequenceStatus: compact(row["Sequence Status"]),
         callStatus: compact(row.Call),
