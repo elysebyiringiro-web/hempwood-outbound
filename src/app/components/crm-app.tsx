@@ -438,14 +438,19 @@ function ContactsView({ contacts, allContacts, weeklyReached, unreached, dueFoll
 function DashboardView({ count, percent, projects, contacts, unreached, dueFollowUps, scheduledFollowUps }: { count: number; percent: number; projects: Project[]; contacts: Contact[]; unreached: number; dueFollowUps: number; scheduledFollowUps: number }) {
   const reached = Math.max(0, projects.length - unreached);
   const coverage = projects.length ? Math.round((reached / projects.length) * 100) : 0;
-  const leadCount = contacts.filter((contact) => contact.lifecycle === "Lead").length;
-  const pipeline = ["Prospect", "Lead", "MQL", "SQL", "Specified", "Customer/Order"] as const;
+  const pipeline = [
+    { value: "Lead", label: "Lead" },
+    { value: "MQL", label: "MQL" },
+    { value: "SQL", label: "SQL" },
+    { value: "Specified", label: "Specification" },
+    { value: "Customer/Order", label: "Customer/Order" },
+  ] as const;
   return <section className="view dashboard"><div className="dashboard-heading"><div><span>CAMPAIGN OVERVIEW</span><h1>Dashboard</h1><p>Focus the team on the work that moves projects forward.</p></div><a href="https://docs.google.com/spreadsheets/d/1aV1t5wTRRSkyO1vzysj_6z1UGFKWVuoZYLBTDPLv6Js/edit" target="_blank" rel="noreferrer">View target source ↗</a></div>
     <div className="dashboard-grid">
       <article className="dashboard-hero"><div className="dashboard-hero-copy"><span className="dashboard-eyebrow">WEEKLY PROJECT OUTREACH</span><div className="dashboard-total"><strong>{count}</strong><span>of {weeklyProjectTarget}<small>projects reached</small></span></div><div className="dashboard-progress"><i style={{ width: `${percent}%` }} /></div><footer><b>{Math.max(0, weeklyProjectTarget - count)} projects to target</b><span>{percent}% complete</span></footer></div><div className="dashboard-ring" style={{ "--progress": `${percent}%` } as React.CSSProperties}><div><strong>{percent}%</strong><span>weekly pace</span></div></div></article>
-      <div className="dashboard-counts"><article className="metric-due"><span className="metric-icon">✓</span><div><small>Follow-ups due</small><strong>{dueFollowUps}</strong><span>Ready to work now</span></div></article><article className="metric-leads"><span className="metric-icon">↗</span><div><small>Leads</small><strong>{leadCount}</strong><span>Active lead-stage contacts</span></div></article><article><span className="metric-icon">○</span><div><small>Unreached projects</small><strong>{unreached}</strong><span>No outreach logged</span></div></article><article><span className="metric-icon">→</span><div><small>Scheduled next</small><strong>{scheduledFollowUps}</strong><span>Future follow-ups</span></div></article></div>
+      <div className="dashboard-counts"><article className="metric-due"><span className="metric-icon">✓</span><div><small>Follow-ups due</small><strong>{dueFollowUps}</strong><span>Ready to work now</span></div></article><article><span className="metric-icon">○</span><div><small>Unreached projects</small><strong>{unreached}</strong><span>No outreach logged</span></div></article><article><span className="metric-icon">→</span><div><small>Scheduled next</small><strong>{scheduledFollowUps}</strong><span>Future follow-ups</span></div></article></div>
       <article className="coverage-card"><div className="donut" style={{ "--coverage": `${coverage}%` } as React.CSSProperties}><span><strong>{coverage}%</strong><small>covered</small></span></div><div><span className="dashboard-eyebrow">PROJECT COVERAGE</span><h2>{reached} of {projects.length}</h2><p>projects have outreach activity logged.</p><b>{unreached} still need a first touch</b></div></article>
-      <article className="pipeline-card"><header><div><span className="dashboard-eyebrow">LIFECYCLE PIPELINE</span><h2>Contacts by stage</h2></div><span>{contacts.length} total contacts</span></header><div className="pipeline-stages">{pipeline.map((stage, index) => { const stageCount = contacts.filter((contact) => contact.lifecycle === stage).length; return <div key={stage}><span><i>{index + 1}</i>{stage}</span><strong>{stageCount}</strong></div>; })}</div></article>
+      <article className="pipeline-card"><header><div><span className="dashboard-eyebrow">LIFECYCLE PIPELINE</span><h2>Contacts by stage</h2></div><span>Qualified stages only</span></header><div className="pipeline-stages">{pipeline.map((stage, index) => { const stageCount = contacts.filter((contact) => contact.lifecycle === stage.value).length; return <div key={stage.value}><span><i>{index + 1}</i>{stage.label}</span><strong>{stageCount}</strong></div>; })}</div></article>
     </div>
   </section>;
 }

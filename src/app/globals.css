@@ -455,16 +455,14 @@ a { text-decoration: none; }
 .dashboard-ring strong { font-size: 27px; }
 .dashboard-ring span { color: #c8dec4; font-size: 10px; }
 
-.dashboard-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.dashboard-counts > article { display: flex; min-height: 120px; align-items: flex-start; gap: 12px; padding: 16px; }
+.dashboard-counts { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.dashboard-counts > article { display: flex; min-height: 76px; align-items: center; gap: 12px; padding: 13px 16px; }
 .dashboard-counts > article > div { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .metric-icon { display: grid; flex: 0 0 auto; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--green-soft); color: var(--green-dark); font-size: 13px; font-weight: 800; }
 .dashboard-counts small { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
 .dashboard-counts strong { margin: 4px 0 1px; font-size: 29px; line-height: 1; }
-.dashboard-counts article div > span { margin-top: auto; color: var(--muted); font-size: 10px; line-height: 1.3; }
+.dashboard-counts article div > span { color: var(--muted); font-size: 10px; line-height: 1.3; }
 .metric-due .metric-icon { background: var(--orange-soft); color: var(--orange); }
-.metric-leads { border-color: #bed9b8 !important; background: linear-gradient(145deg, var(--paper), var(--green-soft)) !important; }
-.metric-leads .metric-icon { background: var(--green); color: var(--paper); }
 
 .coverage-card { display: flex; min-height: 198px; align-items: center; gap: 26px; padding: 24px 28px; }
 .donut { display: grid; flex: 0 0 auto; place-items: center; width: 132px; height: 132px; border-radius: 50%; background: conic-gradient(var(--green) 0 var(--coverage), var(--line) var(--coverage) 100%); }
@@ -482,8 +480,9 @@ a { text-decoration: none; }
 .pipeline-card > header { display: flex; align-items: flex-start; justify-content: space-between; }
 .pipeline-card h2 { margin: 2px 0 0; font-size: 17px; }
 .pipeline-card header > span { color: var(--muted); font-size: 11px; }
-.pipeline-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 16px; }
+.pipeline-stages { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-top: 16px; }
 .pipeline-stages > div { display: flex; align-items: center; justify-content: space-between; padding: 9px; border-radius: 7px; background: var(--canvas); }
+.pipeline-stages > div:last-child { grid-column: 1 / -1; }
 .pipeline-stages > div > span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
 .pipeline-stages i { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--paper); color: var(--green-dark); font-size: 9px; font-style: normal; font-weight: 700; }
 .pipeline-stages strong { font-size: 16px; }
@@ -632,6 +631,10 @@ a { text-decoration: none; }
   .record-grid > aside:last-child { grid-column: 1 / -1; }
   .handover-grid { grid-template-columns: 1fr; }
   .dashboard-grid { grid-template-columns: 1fr; }
+  .dashboard-counts { grid-template-columns: repeat(3, 1fr); }
+  .dashboard-counts > article { min-height: 110px; align-items: flex-start; }
+  .pipeline-stages { grid-template-columns: repeat(5, 1fr); }
+  .pipeline-stages > div:last-child { grid-column: auto; }
   .target-strip { grid-template-columns: 1fr auto; }
   .target-strip em,
   .target-strip > span:nth-last-child(2) { display: none; }
@@ -661,7 +664,7 @@ a { text-decoration: none; }
   .task-list time,
   .task-list .secondary { display: none; }
   .dashboard-counts { grid-template-columns: 1fr; }
-  .dashboard-counts > article { min-height: 120px; }
+  .dashboard-counts > article { min-height: 86px; align-items: center; }
   .dashboard-hero { min-height: 220px; padding: 24px 20px; }
   .dashboard-hero-copy { width: 100%; }
   .dashboard-total > strong { font-size: 52px; }
@@ -670,6 +673,7 @@ a { text-decoration: none; }
   .donut { width: 110px; height: 110px; }
   .donut::before { width: 78px; height: 78px; }
   .pipeline-stages { grid-template-columns: repeat(2, 1fr); }
+  .pipeline-stages > div:last-child { grid-column: 1 / -1; }
   .modal-grid { grid-template-columns: 1fr; }
   .modal-grid > aside { border-top: 1px solid var(--line); border-left: 0; }
   .sequence-step { grid-template-columns: 1fr auto; }
