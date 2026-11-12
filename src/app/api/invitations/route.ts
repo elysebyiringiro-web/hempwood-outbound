@@ -1,4 +1,4 @@
-import { hasHempWoodAccess, isAdminEmail, primaryEmail } from "@/lib/access";
+import { approvedTeamEmails, hasHempWoodAccess, isAdminEmail, primaryEmail } from "@/lib/access";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import type { NextRequest } from "next/server";
 
@@ -22,13 +22,15 @@ export async function POST(request: NextRequest) {
   const body = await request.json() as { email?: string };
   const email = body.email?.trim().toLowerCase() ?? "";
   if (!/^\S+@\S+\.\S+$/.test(email)) return Response.json({ error: "Enter a valid email address." }, { status: 400 });
+  if (!approvedTeamEmails.includes(email as typeof approvedTeamEmails[number])) {
+    return Response.json({ error: "This email is not on the approved team list." }, { status: 400 });
+  }
   try {
     const client = await clerkClient();
     const invitation = await client.invitations.createInvitation({
       emailAddress: email,
       notify: true,
       expiresInDays: 30,
-      publicMetadata: { hempwoodAccess: true },
       redirectUrl: new URL("/sign-up", request.url).toString(),
     });
     return Response.json({ invitation: { id: invitation.id, email: invitation.emailAddress, status: invitation.status, createdAt: invitation.createdAt } }, { status: 201 });

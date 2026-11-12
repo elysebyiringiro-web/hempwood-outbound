@@ -17,7 +17,7 @@ export default function SignInPage() {
         <span className="auth-kicker">PRIVATE TEAM WORKSPACE</span>
         <h1>Turn early-stage projects into timely conversations.</h1>
         <p>
-          Sign in with an invited email address to access the campaign dashboard,
+          Sign in with an approved team email to access the campaign dashboard,
           contacts, projects, and follow-up queue.
         </p>
         <div className="auth-points">

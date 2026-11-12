@@ -17,8 +17,8 @@ export default function SignUpPage() {
         <span className="auth-kicker">INVITED TEAM MEMBERS ONLY</span>
         <h1>Create your campaign workspace account.</h1>
         <p>
-          Use the same email address that received your invitation. Access is
-          checked again before any CRM data is loaded.
+          Use an email address on the approved team list. Access is checked
+          again before any CRM data is loaded.
         </p>
       </section>
       <section className="auth-card">
