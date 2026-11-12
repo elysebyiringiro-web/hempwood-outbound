@@ -58,6 +58,16 @@ function normalizeLifecycle(value: string): Lifecycle {
   return match ?? "Prospect";
 }
 
+const lifecyclePriority: Record<Lifecycle, number> = {
+  Prospect: 0,
+  Lead: 1,
+  Nurture: 2,
+  MQL: 3,
+  SQL: 4,
+  Specified: 5,
+  "Customer/Order": 6,
+};
+
 function inferCompany(row: SheetRow) {
   const companyCell = compact(row["Company Website"]);
   if (companyCell && companyCell !== "-" && !isUrl(companyCell)) return companyCell;
@@ -273,6 +283,7 @@ export async function getCrmData(): Promise<CrmData> {
         lastActivity: displayDate(latestDate),
         lastTouchpoint,
         comments: compact(row.Comments),
+        workspaceNotes: "",
         summary: `${compact(row.Role) || "Contact"} at ${company || "the listed organization"}. The source sheet associates this person through “${compact(row["Audience Type"]) || "relationship not specified"}.”`,
         projects: [project],
         activities: activity ? [activity] : [],
@@ -282,7 +293,7 @@ export async function getCrmData(): Promise<CrmData> {
 
     if (!existing.projects.some((item) => item.id === project.id)) existing.projects.push(project);
     if (activity && !existing.activities.some((item) => item.id === activity.id)) existing.activities.push(activity);
-    if (!existing.lifecycle && lifecycle) existing.lifecycle = lifecycle;
+    if (compact(row.Lifecycle) && lifecyclePriority[lifecycle] > lifecyclePriority[existing.lifecycle]) existing.lifecycle = lifecycle;
     if (step > existing.step) {
       existing.step = step;
       existing.sequenceStatus = compact(row["Sequence Status"]) || existing.sequenceStatus;

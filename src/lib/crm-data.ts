@@ -64,6 +64,7 @@ export type Contact = {
   lastActivity: string;
   lastTouchpoint: string;
   comments: string;
+  workspaceNotes: string;
   summary: string;
   projects: Project[];
   activities: Activity[];

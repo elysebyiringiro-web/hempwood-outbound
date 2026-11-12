@@ -548,6 +548,12 @@ a { text-decoration: none; }
 .handover-note p,
 .handover-next p { margin: 5px 0 0; color: var(--ink); line-height: 1.5; }
 .handover-guidance { border-left: 3px solid var(--green); }
+.panel-heading { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--line); }
+.panel-heading h3 { padding: 0; border: 0; }
+.panel-heading small { color: var(--muted); font-size: 10px; }
+.panel-heading > span { padding: 3px 7px; border-radius: 10px; background: var(--green-soft); color: var(--green-dark); font-size: 10px; font-weight: 700; }
+.contact-notes textarea { display: block; width: calc(100% - 24px); margin: 12px; padding: 10px; resize: vertical; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-size: 13px; line-height: 1.5; }
+.contact-notes > button { margin: 0 12px 12px; }
 .handover-guidance p { margin: 5px 0 14px; }
 
 .record > header {
@@ -618,7 +624,8 @@ a { text-decoration: none; }
 .context { padding: 11px; border-radius: 7px; background: var(--green-soft); font-size: 13px; }
 .modal label { display: block; margin-top: 12px; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .modal textarea,
-.modal select { width: 100%; margin-top: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1.55; text-transform: none; }
+.modal select,
+.modal input { width: 100%; margin-top: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1.55; text-transform: none; }
 .modal-grid aside p { color: var(--muted); font-size: 13px; }
 .sequence-editor { width: min(740px, 96vw); }
 .editor-body { padding: 20px; }
