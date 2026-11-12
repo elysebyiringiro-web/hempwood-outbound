@@ -360,11 +360,12 @@ export default function CrmApp() {
   }
 
   function completeStep(contactId: string, outcome: string, touchpointDate: string, activityNote: string) {
+    if (!touchpointDate || touchpointDate > campaignDateKey()) return;
     setContacts((current) =>
       current.map((contact) => {
         if (contact.id !== contactId) return contact;
         const step = campaignSteps[contact.step];
-        const dateValue = touchpointDate || campaignDateKey();
+        const dateValue = touchpointDate;
         const activity = {
           id: `workspace-${crypto.randomUUID()}`,
           type: step.channel.toLowerCase() === "linkedin" ? ("linkedin" as const) : step.channel.toLowerCase() === "call" ? ("call" as const) : ("email" as const),
@@ -535,7 +536,18 @@ function TaskModal({ contact, template, onClose, onComplete }: { contact: Contac
   const [touchpointDate, setTouchpointDate] = useState(campaignDateKey());
   const [activityNote, setActivityNote] = useState("");
   const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
-  return <div className="modal-backdrop"><section className="modal"><header><div><small>STEP {contact.step + 1} · {step.channel} · DAY {step.day}</small><h2>{step.name}</h2></div><button onClick={onClose}>×</button></header><div className="modal-grid"><div><div className="context"><b>{contact.name}</b> · {contact.company}<br/>{contact.projects.map((project) => project.name).join(" + ")}</div><label>Suggested content<textarea rows={14} defaultValue={personalizedCopy(contact, template)} /></label></div><aside><h3>Log activity</h3><label>Outcome<select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option>Completed</option><option>Voicemail left</option><option>No answer</option><option>Connected</option><option>Replied</option><option>Meeting booked</option><option>Sample requested</option></select></label><label>Touchpoint date<input type="date" max={campaignDateKey()} value={touchpointDate} onChange={(event) => setTouchpointDate(event.target.value)} /></label><label>Activity note<textarea rows={4} value={activityNote} onChange={(event) => setActivityNote(event.target.value)} placeholder="What happened? Add reply details, a referral, or the next action." /></label><p>The date becomes the contact&apos;s last touchpoint and schedules the next campaign step. A reply, meeting, or sample request moves the contact to MQL.</p><button className="primary full" onClick={() => onComplete(contact.id, outcome, touchpointDate, activityNote)}>Complete step</button><button className="secondary full" onClick={onClose}>Cancel</button></aside></div></section></div>;
+  const stopsSequence = ["Meeting booked", "Sample requested", "Replied"].includes(outcome);
+  const finalStep = contact.step === campaignSteps.length - 1;
+  const nextStepIndex = Math.min(contact.step + 1, campaignSteps.length - 1);
+  const nextDate = touchpointDate && !stopsSequence && !finalStep ? nextDueDate(contact.step, nextStepIndex, touchpointDate) : "";
+  const scheduleSummary = stopsSequence
+    ? { title: "Sequence stops at MQL", detail: "This engaged outcome creates the sales handover instead of another campaign task." }
+    : finalStep
+      ? { title: "Sequence completes", detail: "The contact moves to Nurture after this final touchpoint." }
+      : touchpointDate
+        ? { title: `Next: ${campaignSteps[nextStepIndex].name}`, detail: `Due ${activityDateLabel(nextDate)} · ${campaignSteps[nextStepIndex].day - step.day} days after this touchpoint.` }
+        : { title: "Choose a touchpoint date", detail: "The next campaign date will be calculated from it." };
+  return <div className="modal-backdrop"><section className="modal"><header><div><small>STEP {contact.step + 1} · {step.channel} · DAY {step.day}</small><h2>{step.name}</h2></div><button onClick={onClose}>×</button></header><div className="modal-grid"><div><div className="context"><b>{contact.name}</b> · {contact.company}<br/>{contact.projects.map((project) => project.name).join(" + ")}</div><label>Suggested content<textarea rows={14} defaultValue={personalizedCopy(contact, template)} /></label></div><aside><h3>Log activity</h3><label>Outcome<select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option>Completed</option><option>Voicemail left</option><option>No answer</option><option>Connected</option><option>Replied</option><option>Meeting booked</option><option>Sample requested</option></select></label><label className="date-field">Last touchpoint date<input type="date" required max={campaignDateKey()} value={touchpointDate} onChange={(event) => setTouchpointDate(event.target.value)} /><small>Choose when this activity actually happened. Future dates are not allowed.</small></label><label>Activity note<textarea rows={4} value={activityNote} onChange={(event) => setActivityNote(event.target.value)} placeholder="What happened? Add reply details, a referral, or the next action." /></label><div className="schedule-preview"><span>Scheduling result</span><b>{scheduleSummary.title}</b><small>{scheduleSummary.detail}</small></div><button className="primary full" disabled={!touchpointDate} onClick={() => onComplete(contact.id, outcome, touchpointDate, activityNote)}>Complete step</button><button className="secondary full" onClick={onClose}>Cancel</button></aside></div></section></div>;
 }
 
 function SequenceEditor({ index, content, onClose, onSave }: { index: number; content: string; onClose: () => void; onSave: (index: number, content: string) => void }) {

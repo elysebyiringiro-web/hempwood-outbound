@@ -217,6 +217,7 @@ a { text-decoration: none; }
 }
 
 .primary:hover { border-color: var(--green-hover); background: var(--green-hover); }
+.primary:disabled { cursor: not-allowed; border-color: #a9b7a7; background: #a9b7a7; }
 
 .secondary {
   border: 1px solid var(--line);
@@ -627,6 +628,14 @@ a { text-decoration: none; }
 .modal select,
 .modal input { width: 100%; margin-top: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1.55; text-transform: none; }
 .modal-grid aside p { color: var(--muted); font-size: 13px; }
+.date-field small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.35; text-transform: none; }
+.schedule-preview { margin-top: 14px; padding: 11px; border: 1px solid #cfe0cb; border-radius: 8px; background: var(--green-soft); }
+.schedule-preview span,
+.schedule-preview b,
+.schedule-preview small { display: block; }
+.schedule-preview span { color: var(--green-dark); font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; }
+.schedule-preview b { margin-top: 3px; color: var(--ink); font-size: 13px; }
+.schedule-preview small { margin-top: 2px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .sequence-editor { width: min(740px, 96vw); }
 .editor-body { padding: 20px; }
 .editor-body p { color: var(--muted); font-size: 13px; }
