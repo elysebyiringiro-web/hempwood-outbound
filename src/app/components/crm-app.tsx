@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { UserButton } from "@clerk/nextjs";
 import {
   campaignSteps,
   contactTypes,
@@ -15,7 +16,7 @@ import {
   weeklyProjectTarget,
 } from "@/lib/crm-data";
 
-type View = "contacts" | "targets" | "tasks" | "projects" | "sequences" | "handovers";
+type View = "contacts" | "targets" | "tasks" | "projects" | "sequences" | "handovers" | "access";
 
 const navItems: { id: View; label: string; icon: string }[] = [
   { id: "targets", label: "Dashboard", icon: "◎" },
@@ -24,6 +25,7 @@ const navItems: { id: View; label: string; icon: string }[] = [
   { id: "projects", label: "Projects", icon: "⌂" },
   { id: "sequences", label: "Sequences", icon: "→" },
   { id: "handovers", label: "MQL handovers", icon: "◇" },
+  { id: "access", label: "Team access", icon: "＋" },
 ];
 
 const contactOwnerKey = "hempwood-contact-owners-v2";
@@ -219,7 +221,7 @@ function personalizedCopy(contact: Contact, template: string) {
   );
 }
 
-export default function CrmApp() {
+export default function CrmApp({ viewerName, viewerEmail, canManageAccess }: { viewerName: string; viewerEmail: string; canManageAccess: boolean }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [view, setView] = useState<View>("targets");
@@ -403,7 +405,7 @@ export default function CrmApp() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">|||</span><span><b>HEMPWOOD</b><small>OUTBOUND CRM</small></span></div>
         <nav>
-          {navItems.map((item) => (
+          {navItems.filter((item) => item.id !== "access" || canManageAccess).map((item) => (
             <button key={item.id} className={view === item.id && !selected ? "active" : ""} onClick={() => { setSelectedId(null); setView(item.id); }}>
               <span>{item.icon}</span>{item.label}
               {item.id === "tasks" && <i>{dueTaskCount}</i>}
@@ -411,7 +413,7 @@ export default function CrmApp() {
             </button>
           ))}
         </nav>
-        <div className="workspace-user"><span>JR</span><div><b>Jay Robbins</b><small>Campaign owner</small></div></div>
+        <div className="workspace-user"><UserButton /><div><b>{viewerName}</b><small>{viewerEmail}</small></div></div>
       </aside>
 
       <main>
@@ -430,6 +432,7 @@ export default function CrmApp() {
             {view === "projects" && <ProjectsView projects={filteredProjects} contactNameById={contactNameById} onAssign={updateProjectOwner} />}
             {view === "sequences" && <SequenceView content={sequenceContent} contacts={contacts} onEdit={setEditingSequence} onView={setSelectedId} onWork={setTaskId} />}
             {view === "handovers" && <HandoversView contacts={contacts.filter((contact) => contact.lifecycle === "MQL")} onSelect={setSelectedId} />}
+            {view === "access" && canManageAccess && <AccessView />}
           </>
         )}
       </main>
@@ -470,6 +473,46 @@ function DashboardView({ count, percent, projects, contacts, unreached, dueFollo
       <article className="pipeline-card"><header><div><span className="dashboard-eyebrow">LIFECYCLE PIPELINE</span><h2>Contacts by stage</h2></div><span>Qualified stages only</span></header><div className="pipeline-stages">{pipeline.map((stage, index) => { const stageCount = contacts.filter((contact) => contact.lifecycle === stage.value).length; return <div key={stage.value}><span><i>{index + 1}</i>{stage.label}</span><strong>{stageCount}</strong></div>; })}</div></article>
     </div>
   </section>;
+}
+
+type InvitationRecord = { id: string; email: string; status: string; createdAt: number };
+
+function AccessView() {
+  const [email, setEmail] = useState("");
+  const [invitations, setInvitations] = useState<InvitationRecord[]>([]);
+  const [status, setStatus] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/invitations", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Invitations could not be loaded.");
+        return response.json() as Promise<{ invitations: InvitationRecord[] }>;
+      })
+      .then((data) => { if (active) setInvitations(data.invitations); })
+      .catch((error: Error) => { if (active) setStatus(error.message); });
+    return () => { active = false; };
+  }, []);
+
+  async function invite() {
+    setSending(true);
+    setStatus("");
+    try {
+      const response = await fetch("/api/invitations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      const data = await response.json() as { invitation?: InvitationRecord; error?: string };
+      if (!response.ok || !data.invitation) throw new Error(data.error || "The invitation could not be sent.");
+      setInvitations((current) => [data.invitation!, ...current]);
+      setEmail("");
+      setStatus(`Invitation sent to ${data.invitation.email}.`);
+    } catch (error) {
+      setStatus((error as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return <section className="view"><PageHeader title="Team access"><span className="count-label">Invite-only workspace</span></PageHeader><div className="access-grid"><article className="invite-card"><span className="dashboard-eyebrow">ADD A TEAM MEMBER</span><h2>Invite by email</h2><p>Clerk sends a secure invitation. Only invited accounts can open CRM data.</p><label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" /></label><button className="primary" disabled={sending || !email.trim()} onClick={invite}>{sending ? "Sending…" : "Send invitation"}</button>{status && <div className="invite-status">{status}</div>}</article><article className="invitation-list"><header><div><span className="dashboard-eyebrow">ACCESS HISTORY</span><h2>Invitations</h2></div><span>{invitations.length}</span></header>{invitations.length ? invitations.map((invitation) => <div key={invitation.id}><span><b>{invitation.email}</b><small>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: campaignTimeZone }).format(new Date(invitation.createdAt))}</small></span><em>{invitation.status}</em></div>) : <p>No invitations have been sent yet.</p>}</article></div></section>;
 }
 
 function TasksView({ contacts, onWork, onSelect }: { contacts: Contact[]; onWork: (id: string) => void; onSelect: (id: string) => void }) {
