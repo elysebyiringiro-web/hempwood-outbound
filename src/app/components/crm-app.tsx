@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useWorkspace } from "./use-workspace";
+import { projectWorkspace, progressOf, type NoteRevision } from "@/lib/workspace";
 import { UserButton } from "@clerk/nextjs";
 import {
   campaignSteps,
@@ -28,11 +30,6 @@ const navItems: { id: View; label: string; icon: string }[] = [
   { id: "access", label: "Team access", icon: "＋" },
 ];
 
-const contactOwnerKey = "hempwood-contact-owners-v2";
-const contactTypeKey = "hempwood-contact-types-v1";
-const projectOwnerKey = "hempwood-project-owners-v2";
-const sequenceContentKey = "hempwood-sequence-content-v2";
-const workflowStateKey = "hempwood-workflow-state-v2";
 const outreachTypes = new Set(["email", "call", "linkedin"]);
 const campaignTimeZone = "Africa/Kigali";
 
@@ -40,42 +37,6 @@ function isOutreachActivity(activity: Contact["activities"][number]) {
   if (outreachTypes.has(activity.type)) return true;
   if (activity.note === "Logged in the campaign workspace.") return false;
   return /\b(email|call|voicemail|vm|linkedin|li invite|spoke)\b/i.test(activity.note);
-}
-
-type WorkflowState = Record<
-  string,
-  Pick<Contact, "step" | "lifecycle" | "campaignStatus" | "dueDate" | "lastActivity" | "lastTouchpoint" | "workspaceNotes" | "activities">
->;
-
-function readStoredMap(key: string) {
-  try {
-    return JSON.parse(window.localStorage.getItem(key) ?? "{}") as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-function readWorkflowState() {
-  try {
-    return JSON.parse(window.localStorage.getItem(workflowStateKey) ?? "{}") as WorkflowState;
-  } catch {
-    return {};
-  }
-}
-
-function persistWorkflow(contact: Contact) {
-  const current = readWorkflowState();
-  current[contact.id] = {
-    step: contact.step,
-    lifecycle: contact.lifecycle,
-    campaignStatus: contact.campaignStatus,
-    dueDate: contact.dueDate,
-    lastActivity: contact.lastActivity,
-    lastTouchpoint: contact.lastTouchpoint,
-    workspaceNotes: contact.workspaceNotes,
-    activities: contact.activities.filter((activity) => activity.id.startsWith("workspace-") || activity.note === "Logged in the campaign workspace."),
-  };
-  window.localStorage.setItem(workflowStateKey, JSON.stringify(current));
 }
 
 function kigaliWeekBounds(nowValue: string) {
@@ -222,27 +183,25 @@ function personalizedCopy(contact: Contact, template: string) {
 }
 
 export default function CrmApp({ viewerName, viewerEmail, canManageAccess }: { viewerName: string; viewerEmail: string; canManageAccess: boolean }) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [sheet, setSheet] = useState<CrmData | null>(null);
+  const team = useWorkspace();
+  const { contacts, projects, sequence: sequenceContent } = useMemo(() => sheet
+    ? projectWorkspace(sheet, team.state.fields)
+    : { contacts: [] as Contact[], projects: [] as Project[], sequence: [...defaultSequenceContent] }, [sheet, team.state.fields]);
   const [view, setView] = useState<View>("targets");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
+  const [task, setTask] = useState<{ contact: Contact; version: number } | null>(null);
+  function openTask(id: string) {
+    const contact = contacts.find(c => c.id === id);
+    if (contact) setTask({ contact, version: team.state.fields["progress/" + id]?.version ?? 0 });
+  }
   const [editingSequence, setEditingSequence] = useState<number | null>(null);
+  const [editorVersion, setEditorVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState("");
   const [sourceMeta, setSourceMeta] = useState({ tab: "Sample Projects", syncedAt: "" });
   const [refreshToken, setRefreshToken] = useState(0);
-  const [sequenceContent, setSequenceContent] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [...defaultSequenceContent];
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(sequenceContentKey) ?? "null") as string[] | null;
-      return stored?.length === campaignSteps.length ? stored : [...defaultSequenceContent];
-    } catch {
-      return [...defaultSequenceContent];
-    }
-  });
-
   useEffect(() => {
     const controller = new AbortController();
     async function syncSheet() {
@@ -252,28 +211,7 @@ export default function CrmApp({ viewerName, viewerEmail, canManageAccess }: { v
         const response = await fetch("/api/crm-data", { signal: controller.signal, cache: "no-store" });
         if (!response.ok) throw new Error("The client-facing sheet could not be loaded.");
         const data = (await response.json()) as CrmData;
-        const contactOwners = readStoredMap(contactOwnerKey);
-        const storedContactTypes = readStoredMap(contactTypeKey);
-        const projectOwners = readStoredMap(projectOwnerKey);
-        const workflow = readWorkflowState();
-        setContacts(data.contacts.map((contact) => {
-          const storedContactType = storedContactTypes[contact.id] as ContactType | undefined;
-          const contactType = storedContactType && contactTypes.includes(storedContactType) ? storedContactType : contact.contactType;
-          const saved = workflow[contact.id];
-          if (!saved) return { ...contact, contactType, owner: contactOwners[contact.id] || contact.owner };
-          const activityIds = new Set(contact.activities.map((activity) => activity.id));
-          const savedLifecycle = lifecycleStages.includes(saved.lifecycle) && (saved.lifecycle !== "Prospect" || contact.lifecycle === "Prospect") ? saved.lifecycle : contact.lifecycle;
-          return {
-            ...contact,
-            ...saved,
-            contactType,
-            lifecycle: savedLifecycle,
-            workspaceNotes: saved.workspaceNotes ?? contact.workspaceNotes,
-            owner: contactOwners[contact.id] || contact.owner,
-            activities: [...(saved.activities ?? []).filter((activity) => !activityIds.has(activity.id)), ...contact.activities],
-          };
-        }));
-        setProjects(data.projects.map((project) => ({ ...project, assignee: projectOwners[project.id] || project.assignee })));
+        setSheet(data);
         setSourceMeta({ tab: data.sourceTab, syncedAt: data.syncedAt });
       } catch (error) {
         if ((error as Error).name !== "AbortError") setSyncError((error as Error).message);
@@ -300,104 +238,73 @@ export default function CrmApp({ viewerName, viewerEmail, canManageAccess }: { v
       .includes(query.toLowerCase()),
   );
   const selected = contacts.find((contact) => contact.id === selectedId) ?? null;
-  const taskContact = contacts.find((contact) => contact.id === taskId) ?? null;
+  const taskContact = task?.contact ?? null;
   const weeklyReached = projectsReachedThisWeek(contacts, sourceMeta.syncedAt);
   const unreached = unreachedProjectCount(projects, contacts);
   const dueFollowUps = dueFollowUpCount(contacts);
   const scheduledFollowUps = scheduledFollowUpCount(contacts);
   const dueTaskCount = contacts.filter((contact) => ["Active", "Not started"].includes(contact.campaignStatus) && isReady(contact.dueDate)).length;
   const targetPercent = Math.min(100, Math.round((weeklyReached / weeklyProjectTarget) * 100));
-  function updateContactOwner(contactId: string, owner: string) {
-    setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, owner } : contact)));
-    const stored = readStoredMap(contactOwnerKey);
-    stored[contactId] = owner;
-    window.localStorage.setItem(contactOwnerKey, JSON.stringify(stored));
-  }
-
-  function updateContactType(contactId: string, contactType: ContactType) {
-    setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, contactType } : contact)));
-    const stored = readStoredMap(contactTypeKey);
-    stored[contactId] = contactType;
-    window.localStorage.setItem(contactTypeKey, JSON.stringify(stored));
-  }
-
-  function updateProjectOwner(projectId: string, assignee: string) {
-    setProjects((current) => current.map((project) => (project.id === projectId ? { ...project, assignee } : project)));
-    const stored = readStoredMap(projectOwnerKey);
-    stored[projectId] = assignee;
-    window.localStorage.setItem(projectOwnerKey, JSON.stringify(stored));
-  }
+  function updateContactOwner(id: string, value: string) { return team.save([{ key: "owner/" + id, value }]); }
+  function updateContactType(id: string, value: ContactType) { return team.save([{ key: "type/" + id, value }]); }
+  function updateProjectOwner(id: string, value: string) { return team.save([{ key: "project/" + id, value }]); }
 
   function updateLifecycle(contactId: string, lifecycle: Lifecycle) {
-    setContacts((current) =>
-      current.map((contact) => {
-        if (contact.id !== contactId) return contact;
-        let updated: Contact;
-        if (lifecycle === "MQL") {
-          updated = { ...contact, lifecycle, campaignStatus: "Stopped – MQL", dueDate: "" };
-        } else if (lifecycle === "SQL") {
-          updated = { ...contact, lifecycle, campaignStatus: "Sales follow-up", dueDate: "" };
-        } else if (lifecycle === "Customer/Order") {
-          updated = { ...contact, lifecycle, campaignStatus: "Closed – Customer", dueDate: "" };
-        } else if (lifecycle === "Specified") {
-          updated = { ...contact, lifecycle, campaignStatus: "Closed – Specified", dueDate: "" };
-        } else if (lifecycle === "Nurture") {
-          updated = { ...contact, lifecycle, campaignStatus: "Paused – Nurture", dueDate: "" };
-        } else {
-          updated = { ...contact, lifecycle, campaignStatus: contact.activities.length ? "Active" : "Not started", dueDate: campaignDateKey() };
-        }
-        persistWorkflow(updated);
-        return updated;
-      }),
-    );
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+    let updated: Contact;
+    if (lifecycle === "MQL") {
+      updated = { ...contact, lifecycle, campaignStatus: "Stopped – MQL", dueDate: "" };
+    } else if (lifecycle === "SQL") {
+      updated = { ...contact, lifecycle, campaignStatus: "Sales follow-up", dueDate: "" };
+    } else if (lifecycle === "Customer/Order") {
+      updated = { ...contact, lifecycle, campaignStatus: "Closed – Customer", dueDate: "" };
+    } else if (lifecycle === "Specified") {
+      updated = { ...contact, lifecycle, campaignStatus: "Closed – Specified", dueDate: "" };
+    } else if (lifecycle === "Nurture") {
+      updated = { ...contact, lifecycle, campaignStatus: "Paused – Nurture", dueDate: "" };
+    } else {
+      updated = { ...contact, lifecycle, campaignStatus: contact.activities.length ? "Active" : "Not started", dueDate: campaignDateKey() };
+    }
+    return team.save([{ key: "progress/" + contactId, value: progressOf(updated) }]);
   }
 
-  function updateWorkspaceNotes(contactId: string, workspaceNotes: string) {
-    setContacts((current) => current.map((contact) => {
-      if (contact.id !== contactId) return contact;
-      const updated = { ...contact, workspaceNotes };
-      persistWorkflow(updated);
-      return updated;
-    }));
+  function updateWorkspaceNotes(id: string, value: string, version: number) {
+    return team.save([{ key: "notes/" + id, value, version }]);
   }
 
-  function completeStep(contactId: string, outcome: string, touchpointDate: string, activityNote: string) {
-    if (!touchpointDate || touchpointDate > campaignDateKey()) return;
-    setContacts((current) =>
-      current.map((contact) => {
-        if (contact.id !== contactId) return contact;
-        const step = campaignSteps[contact.step];
-        const dateValue = touchpointDate;
-        const activity = {
-          id: `workspace-${crypto.randomUUID()}`,
-          type: step.channel.toLowerCase() === "linkedin" ? ("linkedin" as const) : step.channel.toLowerCase() === "call" ? ("call" as const) : ("email" as const),
-          title: `${step.name} · ${outcome}`,
-          note: activityNote.trim() || "Logged in the campaign workspace.",
-          date: activityDateLabel(dateValue),
-          dateValue: `${dateValue}T12:00:00.000Z`,
-          projectId: contact.projects[0]?.id ?? "",
-        };
-        let updated: Contact;
-        if (["Meeting booked", "Sample requested", "Replied"].includes(outcome)) {
-          updated = { ...contact, lifecycle: "MQL", campaignStatus: "Stopped – MQL", dueDate: "", lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
-        } else if (contact.step === campaignSteps.length - 1) {
-          updated = { ...contact, lifecycle: "Nurture", campaignStatus: "Completed", dueDate: "", lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
-        } else {
-          const nextStep = contact.step + 1;
-          updated = { ...contact, step: nextStep, campaignStatus: "Active", dueDate: nextDueDate(contact.step, nextStep, dateValue), lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
-        }
-        persistWorkflow(updated);
-        return updated;
-      }),
-    );
-    setTaskId(null);
+  async function completeStep(contactId: string, outcome: string, touchpointDate: string, activityNote: string) {
+    if (!task || !touchpointDate || touchpointDate > campaignDateKey()) return;
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+    const step = campaignSteps[contact.step];
+    const dateValue = touchpointDate;
+    const activity = {
+      id: `workspace-${crypto.randomUUID()}`,
+      type: step.channel.toLowerCase() === "linkedin" ? ("linkedin" as const) : step.channel.toLowerCase() === "call" ? ("call" as const) : ("email" as const),
+      title: `${step.name} · ${outcome}`,
+      note: activityNote.trim() || "Logged in the campaign workspace.",
+      date: activityDateLabel(dateValue),
+      dateValue: `${dateValue}T12:00:00.000Z`,
+      projectId: contact.projects[0]?.id ?? "",
+    };
+    let updated: Contact;
+    if (["Meeting booked", "Sample requested", "Replied"].includes(outcome)) {
+      updated = { ...contact, lifecycle: "MQL", campaignStatus: "Stopped – MQL", dueDate: "", lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
+    } else if (contact.step === campaignSteps.length - 1) {
+      updated = { ...contact, lifecycle: "Nurture", campaignStatus: "Completed", dueDate: "", lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
+    } else {
+      const nextStep = contact.step + 1;
+      updated = { ...contact, step: nextStep, campaignStatus: "Active", dueDate: nextDueDate(contact.step, nextStep, dateValue), lastActivity: activity.date, lastTouchpoint: activity.title, activities: [activity, ...contact.activities] };
+    }
+    if (await team.save([
+      { key: "progress/" + contactId, value: progressOf(updated), version: task.version },
+      { key: "activity/" + contactId + "/" + activity.id, value: activity },
+    ])) setTask(null);
   }
 
-  function saveSequenceContent(index: number, content: string) {
-    const updated = sequenceContent.map((item, itemIndex) => (itemIndex === index ? content : item));
-    setSequenceContent(updated);
-    window.localStorage.setItem(sequenceContentKey, JSON.stringify(updated));
-    setEditingSequence(null);
+  async function saveSequenceContent(index: number, content: string) {
+    if (await team.save([{ key: "sequence/" + index, value: content, version: editorVersion }])) setEditingSequence(null);
   }
 
   return (
@@ -422,22 +329,23 @@ export default function CrmApp({ viewerName, viewerEmail, canManageAccess }: { v
           <div className="source-status"><span>{loading ? "Syncing…" : `${projects.length} projects · ${contacts.length} contacts`}</span><button className="secondary" onClick={() => setRefreshToken((value) => value + 1)}>Sync sheet</button></div>
         </header>
 
-        {syncError ? <div className="sync-error"><b>Sheet sync failed</b><p>{syncError}</p><button className="primary" onClick={() => setRefreshToken((value) => value + 1)}>Try again</button></div> : loading && !contacts.length ? <div className="loading-state">Loading projects and contacts from {sourceMeta.tab}…</div> : selected ? (
-          <ContactRecord contact={selected} onBack={() => setSelectedId(null)} onLifecycle={updateLifecycle} onContactType={updateContactType} onOwner={updateContactOwner} onNotes={updateWorkspaceNotes} onWork={() => setTaskId(selected.id)} />
+        {team.message && <p role="status" className="queue-guidance">{team.message}</p>}
+        {syncError ? <div className="sync-error"><b>Sheet sync failed</b><p>{syncError}</p><button className="primary" onClick={() => setRefreshToken((value) => value + 1)}>Try again</button></div> : !team.ready || (loading && !contacts.length) ? <div className="loading-state">Loading team workspace…</div> : selected ? (
+          <ContactRecord history={team.state.notesHistory["notes/" + selected.id] ?? []} key={selected.id} noteVersion={team.state.fields["notes/" + selected.id]?.version ?? 0} contact={selected} onBack={() => setSelectedId(null)} onLifecycle={updateLifecycle} onContactType={updateContactType} onOwner={updateContactOwner} onNotes={updateWorkspaceNotes} onWork={() => openTask(selected.id)} />
         ) : (
           <>
             {view === "contacts" && <ContactsView contacts={filteredContacts} allContacts={contacts} weeklyReached={weeklyReached} unreached={unreached} dueFollowUps={dueFollowUps} scheduledFollowUps={scheduledFollowUps} dueTaskCount={dueTaskCount} targetPercent={targetPercent} sourceMeta={sourceMeta} onSelect={setSelectedId} onTargets={() => setView("targets")} />}
             {view === "targets" && <DashboardView count={weeklyReached} percent={targetPercent} projects={projects} contacts={contacts} unreached={unreached} dueFollowUps={dueFollowUps} scheduledFollowUps={scheduledFollowUps} />}
-            {view === "tasks" && <TasksView contacts={contacts} onWork={setTaskId} onSelect={setSelectedId} />}
+            {view === "tasks" && <TasksView contacts={contacts} onWork={openTask} onSelect={setSelectedId} />}
             {view === "projects" && <ProjectsView projects={filteredProjects} contactNameById={contactNameById} onAssign={updateProjectOwner} />}
-            {view === "sequences" && <SequenceView content={sequenceContent} contacts={contacts} onEdit={setEditingSequence} onView={setSelectedId} onWork={setTaskId} />}
+            {view === "sequences" && <SequenceView content={sequenceContent} contacts={contacts} onEdit={index => { setEditorVersion(team.state.fields["sequence/" + index]?.version ?? 0); setEditingSequence(index); }} onView={setSelectedId} onWork={openTask} />}
             {view === "handovers" && <HandoversView contacts={contacts.filter((contact) => contact.lifecycle === "MQL")} onSelect={setSelectedId} />}
             {view === "access" && canManageAccess && <AccessView />}
           </>
         )}
       </main>
 
-      {taskContact && <TaskModal contact={taskContact} template={sequenceContent[taskContact.step]} onClose={() => setTaskId(null)} onComplete={completeStep} />}
+      {taskContact && <TaskModal contact={taskContact} template={sequenceContent[taskContact.step]} onClose={() => setTask(null)} onComplete={completeStep} />}
       {editingSequence !== null && <SequenceEditor key={editingSequence} index={editingSequence} content={sequenceContent[editingSequence]} onClose={() => setEditingSequence(null)} onSave={saveSequenceContent} />}
     </div>
   );
@@ -526,8 +434,8 @@ function TasksView({ contacts, onWork, onSelect }: { contacts: Contact[]; onWork
   })}</div> : <div className="sequence-empty"><b>Nothing else is due today.</b><p>Future sequence steps will appear here automatically on their scheduled date.</p></div>}</section>;
 }
 
-function ProjectsView({ projects, contactNameById, onAssign }: { projects: Project[]; contactNameById: Map<string, string>; onAssign: (id: string, owner: string) => void }) {
-  return <section className="view"><PageHeader title="Projects"><span className="count-label">{projects.length} from Sample Projects</span></PageHeader><div className="table-card"><table><thead><tr><th>Project</th><th>Owner / applicant</th><th>Stage</th><th>Type</th><th>Contacts</th><th className="align-center">Source</th><th>Assignee</th></tr></thead><tbody>{projects.map((project) => <tr key={project.id}><td><b>{project.name}</b><small>{project.location}</small></td><td>{project.owner || "—"}</td><td>{project.stage || "—"}</td><td>{project.projectType || "—"}</td><td>{project.contactIds.map((id) => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact unavailable"}</td><td className="align-center">{project.source ? <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Open</a> : "—"}</td><td><input className="inline-input" aria-label={`Assignee for ${project.name}`} value={project.assignee} onChange={(event) => onAssign(project.id, event.target.value)} /></td></tr>)}</tbody></table></div></section>;
+function ProjectsView({ projects, contactNameById, onAssign }: { projects: Project[]; contactNameById: Map<string, string>; onAssign: (id: string, owner: string) => Promise<boolean> }) {
+  return <section className="view"><PageHeader title="Projects"><span className="count-label">{projects.length} from Sample Projects</span></PageHeader><div className="table-card"><table><thead><tr><th>Project</th><th>Owner / applicant</th><th>Stage</th><th>Type</th><th>Contacts</th><th className="align-center">Source</th><th>Assignee</th></tr></thead><tbody>{projects.map((project) => <tr key={project.id}><td><b>{project.name}</b><small>{project.location}</small></td><td>{project.owner || "—"}</td><td>{project.stage || "—"}</td><td>{project.projectType || "—"}</td><td>{project.contactIds.map((id) => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact unavailable"}</td><td className="align-center">{project.source ? <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Open</a> : "—"}</td><td><OwnerInput label={`Assignee for ${project.name}`} value={project.assignee} save={v => onAssign(project.id, v)} /></td></tr>)}</tbody></table></div></section>;
 }
 
 function SequenceView({ content, contacts, onEdit, onView, onWork }: { content: string[]; contacts: Contact[]; onEdit: (index: number) => void; onView: (id: string) => void; onWork: (id: string) => void }) {
@@ -558,20 +466,45 @@ function ContactLink({ href, children }: { href: string; children: React.ReactNo
   return href ? <a className="link" href={href} target="_blank" rel="noreferrer">{children}</a> : <span>—</span>;
 }
 
-function ContactNotes({ contact, onSave }: { contact: Contact; onSave: (id: string, notes: string) => void }) {
-  const [notes, setNotes] = useState(contact.workspaceNotes);
-  const [saved, setSaved] = useState(false);
-  function saveNotes() {
-    onSave(contact.id, notes.trim());
-    setSaved(true);
+type SaveNotes = (id: string, value: string, version: number) => Promise<boolean>;
+
+function ContactNotes({ contact, version, history, onSave }: { contact: Contact; history: NoteRevision[]; version: number; onSave: SaveNotes }) {
+  const [draft, setDraft] = useState<{ text: string; version: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const conflict = draft && draft.version !== version;
+  async function save() {
+    if (!draft) return;
+    setSaving(true);
+    if (await onSave(contact.id, draft.text.trim(), draft.version)) setDraft(null);
+    setSaving(false);
   }
-  return <div className="panel contact-notes"><div className="panel-heading"><div><h3>Jay&apos;s notes</h3><small>Internal workspace notes</small></div>{saved && <span>Saved</span>}</div><textarea rows={4} value={notes} onChange={(event) => { setNotes(event.target.value); setSaved(false); }} placeholder="Add project context, a referral, call notes, or the next action…"/><button className="secondary" onClick={saveNotes}>Save notes</button></div>;
+  return <div className="panel contact-notes"><h3>Team notes</h3>
+    <textarea aria-label="Team notes" rows={4} disabled={saving} value={draft?.text ?? contact.workspaceNotes}
+      onChange={e => setDraft({ text: e.target.value, version: draft?.version ?? version })} />
+    {conflict && <div><p>A teammate saved another version. Review it before saving your draft.</p>
+      <pre>{contact.workspaceNotes}</pre><button onClick={() => setDraft({ ...draft, version })}>Keep editing my draft</button></div>}
+    <button className="secondary" disabled={!draft || saving || !!conflict} onClick={save}>{saving ? "Saving…" : "Save notes"}</button>
+    {history.length > 0 && <details><summary>Note history ({history.length})</summary>
+      {history.slice().reverse().map((entry, i) => <article key={i}>
+        <small>{entry.imported ? "Imported by" : "Saved by"} {entry.actor} · {new Date(entry.at).toLocaleString()}</small>
+        <p style={{ whiteSpace: "pre-wrap" }}>{entry.text || "(Cleared)"}</p>
+      </article>)}</details>}
+  </div>;
 }
 
-function ContactRecord({ contact, onBack, onLifecycle, onContactType, onOwner, onNotes, onWork }: { contact: Contact; onBack: () => void; onLifecycle: (id: string, lifecycle: Lifecycle) => void; onContactType: (id: string, contactType: ContactType) => void; onOwner: (id: string, owner: string) => void; onNotes: (id: string, notes: string) => void; onWork: () => void }) {
+function OwnerInput({ value, label, save }: { value: string; label: string; save: (s: string) => Promise<boolean> }) {
+  const [draft, setDraft] = useState<{ value: string; base: string } | null>(null);
+  return <span><input className="inline-input" aria-label={label} value={draft?.value ?? value}
+    onChange={e => setDraft({ value: e.target.value, base: draft?.base ?? value })}
+    onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+    onBlur={async () => { if (draft && draft.base === value && await save(draft.value)) setDraft(null); }} />
+    {draft && draft.base !== value && <button onClick={() => setDraft(null)}>Use latest assignment: {value}</button>}</span>;
+}
+
+function ContactRecord({ contact, history, noteVersion, onBack, onLifecycle, onContactType, onOwner, onNotes, onWork }: { contact: Contact; history: NoteRevision[]; noteVersion: number; onBack: () => void; onLifecycle: (id: string, lifecycle: Lifecycle) => void; onContactType: (id: string, contactType: ContactType) => void; onOwner: (id: string, owner: string) => Promise<boolean>; onNotes: SaveNotes; onWork: () => void }) {
   const step = campaignSteps[Math.min(contact.step, campaignSteps.length - 1)];
   const sequenceActive = contact.lifecycle === "Prospect" || contact.lifecycle === "Lead";
-  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div>{sequenceActive && <button className="primary" onClick={onWork}>Work current task</button>}</header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}>{lifecycleStages.map((lifecycle) => <option key={lifecycle}>{lifecycle}</option>)}</select></label><label>Contact type<select value={contact.contactType} onChange={(event) => onContactType(contact.id, event.target.value as ContactType)}>{contactTypes.map((contactType) => <option key={contactType}>{contactType}</option>)}</select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<input className="owner-input" value={contact.owner} onChange={(event) => onOwner(contact.id, event.target.value)} /></label></div></aside><div><div className="panel current"><h3>{workflowLabel(contact)}</h3><p>{sequenceActive ? `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}` : `Outbound sequence ${contact.campaignStatus.toLowerCase()}.`}</p>{sequenceActive && <button className="primary" onClick={onWork}>Work task</button>}</div><ContactNotes contact={contact} onSave={onNotes}/>{contact.lifecycle === "MQL" && <div className="panel handover-guidance"><h3>MQL handover</h3><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div>}<div className="panel"><h3>Last touchpoint</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p>{contact.lastActivity && <small>{contact.lastActivity}</small>}</div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Sheet comments:</b> {contact.comments}</p>}</div><div className="panel project-panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
+  return <section className="record"><header><button onClick={onBack}>← Contacts</button><span className="avatar">{contact.initials}</span><div><h1>{contact.name}</h1><p>{contact.company}</p></div>{sequenceActive && <button className="primary" onClick={onWork}>Work current task</button>}</header><div className="record-grid"><aside><div className="profile"><span className="large-avatar">{contact.initials}</span><h2>{contact.name}</h2><p>{contact.title || "Role not listed"}</p></div><div className="panel"><h3>Contact information</h3><label>Lifecycle from sheet<select value={contact.lifecycle} onChange={(event) => onLifecycle(contact.id, event.target.value as Lifecycle)}>{lifecycleStages.map((lifecycle) => <option key={lifecycle}>{lifecycle}</option>)}</select></label><label>Contact type<select value={contact.contactType} onChange={(event) => onContactType(contact.id, event.target.value as ContactType)}>{contactTypes.map((contactType) => <option key={contactType}>{contactType}</option>)}</select></label><label>Actual role<b>{contact.title || "—"}</b></label><label>Email{contact.email ? <a className="link" href={`mailto:${contact.email}`}>{contact.email}</a> : <b>—</b>}</label><label>Phone{contact.phone ? <a className="link" href={`tel:${contact.phone}`}>{contact.phone}</a> : <b>—</b>}</label><label>Personal LinkedIn<ContactLink href={contact.personalLinkedIn}>Open profile</ContactLink></label><label>Company LinkedIn<ContactLink href={contact.companyLinkedIn}>Open company</ContactLink></label><label>Company website<ContactLink href={contact.companyWebsite}>Open website</ContactLink></label><label>Relationship<b>{contact.relationship || "—"}</b></label><label>Assignee<OwnerInput label="Contact assignee" value={contact.owner} save={v => onOwner(contact.id, v)} /></label></div></aside><div><div className="panel current"><h3>{workflowLabel(contact)}</h3><p>{sequenceActive ? `${step.channel} · Day ${step.day} · ${dueLabel(contact.dueDate)}` : `Outbound sequence ${contact.campaignStatus.toLowerCase()}.`}</p>{sequenceActive && <button className="primary" onClick={onWork}>Work task</button>}</div><ContactNotes history={history} version={noteVersion} contact={contact} onSave={onNotes}/>{contact.lifecycle === "MQL" && <div className="panel handover-guidance"><h3>MQL handover</h3><small>Sheet comment</small><p>{contact.comments || contact.lastTouchpoint || "No handover comment is recorded in the sheet."}</p><small>Suggested next action</small><p>{handoverNextAction(contact)}</p></div>}<div className="panel"><h3>Last touchpoint</h3><p className="touchpoint-note">{contact.lastTouchpoint || "No touchpoint recorded."}</p>{contact.lastActivity && <small>{contact.lastActivity}</small>}</div><div className="panel"><h3>Activity history</h3><div className="timeline">{contact.activities.length ? contact.activities.map((activity) => <article key={activity.id}><span>✓</span><div><b>{activity.title}</b><p>{activity.note}</p><small>{activity.date}</small></div></article>) : <p>No activity recorded in the source sheet.</p>}</div></div></div><aside><div className="panel"><h3>Source context</h3><p>{contact.summary}</p>{contact.comments && <p><b>Sheet comments:</b> {contact.comments}</p>}</div><div className="panel project-panel"><h3>Projects ({contact.projects.length})</h3>{contact.projects.map((project) => <article className="project-mini" key={project.id}><b>{project.name}</b><p>{project.owner} · {project.location}</p><p>{project.stage}</p>{project.source && <a className="link" href={project.source.split(/\s\|\s|\n/)[0]} target="_blank" rel="noreferrer">Project source</a>}</article>)}</div></aside></div></section>;
 }
 
 function TaskModal({ contact, template, onClose, onComplete }: { contact: Contact; template: string; onClose: () => void; onComplete: (id: string, outcome: string, touchpointDate: string, activityNote: string) => void }) {
